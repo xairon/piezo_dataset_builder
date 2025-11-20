@@ -119,8 +119,8 @@ class AppState:
                     },
                     'daily_aggregation': True,
                     'timeout': 30,
-                    'rate_limit_hubeau': 0.3,
-                    'rate_limit_meteo': 0.1
+                    'rate_limit_hubeau': 0.1,
+                    'rate_limit_meteo': 0.05
                 }
             }
 
