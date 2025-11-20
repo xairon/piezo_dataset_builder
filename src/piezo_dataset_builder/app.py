@@ -93,11 +93,12 @@ class AppState:
                 'df_result': None,
                 'build_logs': [],
                 'config': {
-                    'date_start': datetime.now() - timedelta(days=30),
+                    'date_start': datetime.now() - timedelta(days=365),
                     'date_end': datetime.now(),
                     'include_stations': True,
                     'include_chroniques': True,
                     'include_meteo': True,
+                    'copernicus_api_token': '',
                     'station_fields': {
                         'libelle_station': True,
                         'nom_commune': True,
@@ -119,8 +120,7 @@ class AppState:
                     },
                     'daily_aggregation': True,
                     'timeout': 30,
-                    'rate_limit_hubeau': 0.1,
-                    'rate_limit_meteo': 10.0
+                    'rate_limit_hubeau': 0.1
                 }
             }
 
@@ -199,13 +199,13 @@ def render_sidebar():
         Mesures piézométriques issues de Hub'Eau
         
         **Météo :**
-        Données climatiques (Pluie, Temp...) issues d'Open-Meteo
+        Données climatiques historiques (depuis 1940) issues d'ERA5 (Copernicus)
         """)
-        
+
         st.markdown("""
         <div style='font-size: 0.8rem; color: #666; margin-top: 20px;'>
-            v1.1.0<br>
-            Powered by Hub'Eau & Open-Meteo
+            v2.0.0<br>
+            Powered by Hub'Eau & ERA5 (Copernicus)
         </div>
         """, unsafe_allow_html=True)
 
@@ -329,14 +329,14 @@ def render_step_2_config():
             d_start = st.date_input(
                 "Date de début",
                 value=config['date_start'],
-                min_value=datetime(1940, 1, 1).date(),  # Open-Meteo historical data starts in 1940
+                min_value=datetime(1940, 1, 1).date(),  # ERA5 historical data starts in 1940
                 max_value=datetime.now().date()
             )
         with col_date2:
             d_end = st.date_input(
                 "Date de fin",
                 value=config['date_end'],
-                min_value=datetime(1940, 1, 1).date(),
+                min_value=datetime(1940, 1, 1).date(),  # ERA5 data up to present
                 max_value=datetime.now().date()
             )
             
@@ -391,9 +391,38 @@ def render_step_2_config():
         st.markdown("") # Spacer
 
         # --- 3. MÉTÉO ---
-        st.markdown("#### 🌦️ Météo (Open-Meteo)")
+        st.markdown("#### 🌦️ Météo (ERA5 - Copernicus)")
+
+        # Champs credentials Copernicus CDS
+        st.info("🔑 **Token API Copernicus CDS** (obligatoire pour ERA5)")
+        copernicus_api_token = st.text_input(
+            "API Token Copernicus",
+            value=config.get('copernicus_api_token', ''),
+            type="password",
+            help="Votre token API du compte Copernicus CDS (format: abcd1234-5678-90ab-cdef-1234567890ab)",
+            placeholder="abcd1234-5678-90ab-cdef-1234567890ab"
+        )
+
+        if not copernicus_api_token:
+            st.warning("⚠️ Vous devez fournir votre token API Copernicus pour utiliser ERA5. [Créer un compte gratuit](https://cds.climate.copernicus.eu/)")
+
+        st.caption("💡 Note : Le nouveau format Copernicus n'utilise plus d'UID, juste un token unique")
+
+        with st.expander("📋 Prérequis ERA5 (IMPORTANT !)", expanded=False):
+            st.markdown("""
+            **Avant la première utilisation, vous devez :**
+
+            1. ✅ Créer un compte sur [Copernicus CDS](https://cds.climate.copernicus.eu/)
+            2. ✅ **Accepter la licence ERA5-Land** : [👉 Cliquez ici](https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land?tab=download#manage-licences)
+            3. ✅ Copier votre token API depuis votre profil
+
+            ⚠️ **Sans accepter la licence, vous obtiendrez une erreur 403 Forbidden.**
+
+            La licence est gratuite et s'accepte en un clic.
+            """)
+
         col_m_check, col_m_opts = st.columns([1, 3])
-        
+
         with col_m_check:
             inc_meteo = st.checkbox("Inclure Météo", value=config['include_meteo'])
 
@@ -433,10 +462,10 @@ def render_step_2_config():
 
         # Options avancées
         with st.expander("Paramètres avancés API"):
-            c_to, c_rl1, c_rl2 = st.columns(3)
+            c_to, c_rl1 = st.columns(2)
             timeout = c_to.number_input("Timeout (s)", value=config['timeout'], min_value=5)
             rl_h = c_rl1.number_input("Rate Limit Hub'Eau (s)", value=config['rate_limit_hubeau'], min_value=0.1)
-            rl_m = c_rl2.number_input("Rate Limit Météo (s)", value=config['rate_limit_meteo'], min_value=5.0, max_value=20.0)
+            st.info("ℹ️ ERA5 n'a pas de rate limit restrictif. Les téléchargements peuvent prendre plusieurs minutes selon la taille de la requête.")
 
         st.markdown("---")
         submitted = st.form_submit_button("🚀 Lancer la construction", type="primary", use_container_width=True)
@@ -446,17 +475,22 @@ def render_step_2_config():
             if d_start >= d_end:
                 st.error("La date de début doit être antérieure à la date de fin.")
                 return
-                
+
+            # Validation credentials si météo incluse
+            if inc_meteo and not copernicus_api_token:
+                st.error("❌ Vous devez fournir votre token API Copernicus pour utiliser les données météo ERA5.")
+                return
+
             # Mise à jour du state
             AppState.update_config('date_start', d_start)
             AppState.update_config('date_end', d_end)
             AppState.update_config('include_stations', inc_stations)
             AppState.update_config('include_chroniques', inc_chroniques)
             AppState.update_config('include_meteo', inc_meteo)
+            AppState.update_config('copernicus_api_token', copernicus_api_token)
             AppState.update_config('daily_aggregation', daily)
             AppState.update_config('timeout', timeout)
             AppState.update_config('rate_limit_hubeau', rl_h)
-            AppState.update_config('rate_limit_meteo', rl_m)
             
             # Update meteo vars
             if inc_meteo:
@@ -538,7 +572,7 @@ def run_build_process():
         builder = DatasetBuilder(
             timeout=config['timeout'],
             rate_limit_hubeau=config['rate_limit_hubeau'],
-            rate_limit_meteo=config['rate_limit_meteo']
+            copernicus_api_token=config.get('copernicus_api_token')
         )
         
         df = builder.build_dataset(

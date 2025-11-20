@@ -3,7 +3,7 @@ Construction du dataset complet depuis les codes de stations piézométriques.
 
 Données intégrées:
 - Hub'Eau Piézométrie: attributs stations + niveaux de nappe
-- Open-Meteo: données météorologiques (température air, précipitations, etc.)
+- ERA5 (Copernicus): données météorologiques réanalysées depuis 1940
 """
 
 import pandas as pd
@@ -12,7 +12,7 @@ from typing import List, Optional, Dict, Any, Callable
 import logging
 
 from ..api.hubeau import HubEauClient
-from ..api.meteo import OpenMeteoClient
+from ..api.era5 import ERA5Client
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class DatasetBuilder:
         self,
         timeout: int = 30,
         rate_limit_hubeau: float = 0.3,
-        rate_limit_meteo: float = 0.1
+        copernicus_api_token: str = None
     ):
         """
         Initialise le builder pour piézométrie.
@@ -36,21 +36,18 @@ class DatasetBuilder:
         Args:
             timeout: Timeout pour les requêtes HTTP (secondes)
             rate_limit_hubeau: Rate limit pour Hub'Eau (secondes entre requêtes)
-            rate_limit_meteo: Rate limit pour Open-Meteo (secondes entre requêtes)
+            copernicus_api_token: Token API du compte Copernicus CDS (pour ERA5)
         """
         self.hubeau_client = HubEauClient(
             timeout=timeout,
             rate_limit=rate_limit_hubeau
         )
-        self.meteo_client = OpenMeteoClient(
-            timeout=timeout,
-            rate_limit=rate_limit_meteo
-        )
+        self.meteo_client = ERA5Client(api_token=copernicus_api_token)
 
         logger.info(
             f"Initialized DatasetBuilder for Piezometry "
             f"(timeout={timeout}s, hubeau_rate={rate_limit_hubeau}s, "
-            f"meteo_rate={rate_limit_meteo}s)"
+            f"weather_source=ERA5)"
         )
 
     def build_dataset(
@@ -318,12 +315,13 @@ class DatasetBuilder:
                 f"date_end ({date_end.date()})"
             )
 
+        # Note: ERA5 n'a pas de limites strictes, mais on garde un warning pour info
         days_diff = (date_end - date_start).days
-        if days_diff > self.MAX_DAYS:
+        if days_diff > 36500:  # ~100 ans
             logger.warning(
-                f"Large date range requested: {days_diff} days "
-                f"(recommended max: {self.MAX_DAYS}). "
-                "This may result in many API requests."
+                f"Very large date range requested: {days_diff} days "
+                f"({days_diff/365:.1f} years). "
+                "ERA5 CDS download may take significant time."
             )
 
         logger.debug(f"Input validation passed: {len(codes_bss)} stations, {days_diff} days")
@@ -418,7 +416,7 @@ class DatasetBuilder:
         date_end: datetime,
         variables: List[str]
     ) -> pd.DataFrame:
-        """Ajoute données météo (température AIR, précipitations, etc.) au DataFrame."""
+        """Ajoute données météo ERA5 (température, précipitations, etc.) au DataFrame."""
         # Extraire stations uniques avec coordonnées
         stations_cols = ['code_bss', 'latitude', 'longitude']
         stations_cols = [c for c in stations_cols if c in df.columns]
