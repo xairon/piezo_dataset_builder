@@ -45,7 +45,7 @@ class OpenMeteoClient:
         "radiation": "shortwave_radiation_sum",            # Rayonnement solaire (MJ/m²)
     }
 
-    def __init__(self, timeout: int = 30, rate_limit: float = 0.1):
+    def __init__(self, timeout: int = 30, rate_limit: float = 2.0):
         """
         Initialise le client Open-Meteo.
 
@@ -115,16 +115,48 @@ class OpenMeteoClient:
 
         return True
 
+    def _split_date_range(self, date_debut: datetime, date_fin: datetime, chunk_years: int = 10):
+        """
+        Divise une plage de dates en chunks pour réduire le poids des requêtes API.
+
+        Args:
+            date_debut: Date de début
+            date_fin: Date de fin
+            chunk_years: Nombre d'années par chunk
+
+        Returns:
+            Liste de tuples (start_date, end_date)
+        """
+        from dateutil.relativedelta import relativedelta
+
+        chunks = []
+        current_start = date_debut
+
+        while current_start < date_fin:
+            # Calculer la fin du chunk (current_start + chunk_years)
+            current_end = min(
+                current_start + relativedelta(years=chunk_years),
+                date_fin
+            )
+            chunks.append((current_start, current_end))
+            current_start = current_end + relativedelta(days=1)
+
+        return chunks
+
     def get_weather_data(
         self,
         latitude: float,
         longitude: float,
         date_debut: datetime,
         date_fin: datetime,
-        variables: List[str] = None
+        variables: List[str] = None,
+        chunk_years: int = 10
     ) -> pd.DataFrame:
         """
         Récupère les données météo pour une localisation.
+
+        Pour éviter les erreurs 429 (rate limit), les longues périodes sont divisées
+        en chunks de chunk_years années.
 
         Args:
             latitude: Latitude (degrés, -90 à 90)
@@ -132,6 +164,7 @@ class OpenMeteoClient:
             date_debut: Date de début
             date_fin: Date de fin
             variables: Liste de variables (par défaut: precipitation, temperature, ET)
+            chunk_years: Nombre d'années par chunk (défaut: 10)
 
         Returns:
             DataFrame avec données météo journalières
@@ -154,6 +187,55 @@ class OpenMeteoClient:
             logger.warning("No valid variables specified")
             return pd.DataFrame()
 
+        # Diviser en chunks si la période est longue
+        years_span = (date_fin - date_debut).days / 365.25
+
+        if years_span > chunk_years:
+            logger.debug(
+                f"Splitting {years_span:.1f} years into chunks of {chunk_years} years "
+                f"to reduce API request weight"
+            )
+            chunks = self._split_date_range(date_debut, date_fin, chunk_years)
+            all_chunks = []
+
+            for chunk_start, chunk_end in chunks:
+                chunk_df = self._fetch_weather_chunk(
+                    latitude, longitude, chunk_start, chunk_end, variables
+                )
+                if not chunk_df.empty:
+                    all_chunks.append(chunk_df)
+
+            if not all_chunks:
+                return pd.DataFrame()
+
+            return pd.concat(all_chunks, ignore_index=True)
+        else:
+            # Période courte, requête directe
+            return self._fetch_weather_chunk(
+                latitude, longitude, date_debut, date_fin, variables
+            )
+
+    def _fetch_weather_chunk(
+        self,
+        latitude: float,
+        longitude: float,
+        date_debut: datetime,
+        date_fin: datetime,
+        variables: List[str]
+    ) -> pd.DataFrame:
+        """
+        Récupère un chunk de données météo (méthode interne).
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            date_debut: Date de début
+            date_fin: Date de fin
+            variables: Liste de variables validées
+
+        Returns:
+            DataFrame avec données météo
+        """
         # Mapping vers noms API
         api_variables = [self.AVAILABLE_VARIABLES[v] for v in variables]
 
@@ -215,7 +297,7 @@ class OpenMeteoClient:
             if e.response.status_code == 429:
                 logger.error(
                     "Open-Meteo API rate limit exceeded (429). "
-                    "Free tier: 10,000 requests/day"
+                    "Free tier weight limit exceeded. Try reducing date range or variables."
                 )
             else:
                 logger.error(
