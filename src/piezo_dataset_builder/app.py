@@ -520,16 +520,19 @@ def run_build_process():
     # UI de progression
     progress_bar = st.progress(0)
     status_text = st.empty()
-    log_area = st.empty()
-    
+
+    # Zone de logs en temps réel (expandable)
+    with st.expander("📋 Logs en temps réel", expanded=True):
+        log_area = st.empty()
+
     logs = []
-    
+
     def progress_callback(pct, msg):
         progress_bar.progress(pct / 100)
         status_text.markdown(f"**{msg}**")
         logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
-        # Affiche les 3 derniers logs
-        log_area.code("\n".join(logs[-3:]))
+        # Affiche tous les logs (limité aux 20 derniers pour la performance)
+        log_area.code("\n".join(logs[-20:]), language="log")
         
     try:
         builder = DatasetBuilder(
@@ -564,9 +567,10 @@ def run_build_process():
 
 def render_step_4_result():
     st.header("4️⃣ Résultat")
-    
+
     df = AppState.get('df_result')
-    
+    build_logs = AppState.get('build_logs')
+
     if df is None or df.empty:
         st.warning("Le dataset généré est vide.")
         if st.button("Recommencer"):
@@ -578,7 +582,12 @@ def render_step_4_result():
         ✅ Dataset généré avec succès ! ({len(df)} lignes, {len(df.columns)} colonnes)
     </div>
     """, unsafe_allow_html=True)
-    
+
+    # Afficher les logs de construction
+    if build_logs:
+        with st.expander("📋 Logs de construction", expanded=False):
+            st.code("\n".join(build_logs), language="log")
+
     # Onglets
     tab1, tab2, tab3 = st.tabs(["📋 Aperçu", "📊 Statistiques", "💾 Export"])
     
