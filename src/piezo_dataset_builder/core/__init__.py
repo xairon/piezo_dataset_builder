@@ -1,0 +1,1 @@
+"""Module Core - Logique métier pour la construction de datasets."""
