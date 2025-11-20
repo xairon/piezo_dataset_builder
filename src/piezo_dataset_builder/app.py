@@ -120,7 +120,7 @@ class AppState:
                     'daily_aggregation': True,
                     'timeout': 30,
                     'rate_limit_hubeau': 0.1,
-                    'rate_limit_meteo': 0.05
+                    'rate_limit_meteo': 5.0
                 }
             }
 
@@ -436,7 +436,7 @@ def render_step_2_config():
             c_to, c_rl1, c_rl2 = st.columns(3)
             timeout = c_to.number_input("Timeout (s)", value=config['timeout'], min_value=5)
             rl_h = c_rl1.number_input("Rate Limit Hub'Eau (s)", value=config['rate_limit_hubeau'], min_value=0.1)
-            rl_m = c_rl2.number_input("Rate Limit Météo (s)", value=config['rate_limit_meteo'], min_value=0.05)
+            rl_m = c_rl2.number_input("Rate Limit Météo (s)", value=config['rate_limit_meteo'], min_value=1.0, max_value=10.0)
 
         st.markdown("---")
         submitted = st.form_submit_button("🚀 Lancer la construction", type="primary", use_container_width=True)

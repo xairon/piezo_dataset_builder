@@ -440,8 +440,8 @@ class OpenMeteoClient:
         date_debut: datetime,
         date_fin: datetime,
         variables: List[str] = None,
-        chunk_years: int = 10,
-        max_locations_per_request: int = 50
+        chunk_years: int = 5,
+        max_locations_per_request: int = 10
     ) -> pd.DataFrame:
         """
         Récupère données météo pour plusieurs localisations de manière optimisée.
@@ -454,8 +454,8 @@ class OpenMeteoClient:
             date_debut: Date de début
             date_fin: Date de fin
             variables: Variables météo à récupérer
-            chunk_years: Nombre d'années par chunk temporel (défaut: 10)
-            max_locations_per_request: Nombre max de locations par requête (défaut: 50)
+            chunk_years: Nombre d'années par chunk temporel (défaut: 5)
+            max_locations_per_request: Nombre max de locations par requête (défaut: 10)
 
         Returns:
             DataFrame avec toutes les données météo
