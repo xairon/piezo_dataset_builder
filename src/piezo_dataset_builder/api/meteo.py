@@ -45,7 +45,7 @@ class OpenMeteoClient:
         "radiation": "shortwave_radiation_sum",            # Rayonnement solaire (MJ/m²)
     }
 
-    def __init__(self, timeout: int = 30, rate_limit: float = 0.1):
+    def __init__(self, timeout: int = 30, rate_limit: float = 2.0):
         """
         Initialise le client Open-Meteo.
 
@@ -115,16 +115,48 @@ class OpenMeteoClient:
 
         return True
 
+    def _split_date_range(self, date_debut: datetime, date_fin: datetime, chunk_years: int = 10):
+        """
+        Divise une plage de dates en chunks pour réduire le poids des requêtes API.
+
+        Args:
+            date_debut: Date de début
+            date_fin: Date de fin
+            chunk_years: Nombre d'années par chunk
+
+        Returns:
+            Liste de tuples (start_date, end_date)
+        """
+        from dateutil.relativedelta import relativedelta
+
+        chunks = []
+        current_start = date_debut
+
+        while current_start < date_fin:
+            # Calculer la fin du chunk (current_start + chunk_years)
+            current_end = min(
+                current_start + relativedelta(years=chunk_years),
+                date_fin
+            )
+            chunks.append((current_start, current_end))
+            current_start = current_end + relativedelta(days=1)
+
+        return chunks
+
     def get_weather_data(
         self,
         latitude: float,
         longitude: float,
         date_debut: datetime,
         date_fin: datetime,
-        variables: List[str] = None
+        variables: List[str] = None,
+        chunk_years: int = 10
     ) -> pd.DataFrame:
         """
         Récupère les données météo pour une localisation.
+
+        Pour éviter les erreurs 429 (rate limit), les longues périodes sont divisées
+        en chunks de chunk_years années.
 
         Args:
             latitude: Latitude (degrés, -90 à 90)
@@ -132,6 +164,7 @@ class OpenMeteoClient:
             date_debut: Date de début
             date_fin: Date de fin
             variables: Liste de variables (par défaut: precipitation, temperature, ET)
+            chunk_years: Nombre d'années par chunk (défaut: 10)
 
         Returns:
             DataFrame avec données météo journalières
@@ -154,6 +187,55 @@ class OpenMeteoClient:
             logger.warning("No valid variables specified")
             return pd.DataFrame()
 
+        # Diviser en chunks si la période est longue
+        years_span = (date_fin - date_debut).days / 365.25
+
+        if years_span > chunk_years:
+            logger.debug(
+                f"Splitting {years_span:.1f} years into chunks of {chunk_years} years "
+                f"to reduce API request weight"
+            )
+            chunks = self._split_date_range(date_debut, date_fin, chunk_years)
+            all_chunks = []
+
+            for chunk_start, chunk_end in chunks:
+                chunk_df = self._fetch_weather_chunk(
+                    latitude, longitude, chunk_start, chunk_end, variables
+                )
+                if not chunk_df.empty:
+                    all_chunks.append(chunk_df)
+
+            if not all_chunks:
+                return pd.DataFrame()
+
+            return pd.concat(all_chunks, ignore_index=True)
+        else:
+            # Période courte, requête directe
+            return self._fetch_weather_chunk(
+                latitude, longitude, date_debut, date_fin, variables
+            )
+
+    def _fetch_weather_chunk(
+        self,
+        latitude: float,
+        longitude: float,
+        date_debut: datetime,
+        date_fin: datetime,
+        variables: List[str]
+    ) -> pd.DataFrame:
+        """
+        Récupère un chunk de données météo (méthode interne).
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            date_debut: Date de début
+            date_fin: Date de fin
+            variables: Liste de variables validées
+
+        Returns:
+            DataFrame avec données météo
+        """
         # Mapping vers noms API
         api_variables = [self.AVAILABLE_VARIABLES[v] for v in variables]
 
@@ -215,7 +297,7 @@ class OpenMeteoClient:
             if e.response.status_code == 429:
                 logger.error(
                     "Open-Meteo API rate limit exceeded (429). "
-                    "Free tier: 10,000 requests/day"
+                    "Free tier weight limit exceeded. Try reducing date range or variables."
                 )
             else:
                 logger.error(
@@ -233,21 +315,147 @@ class OpenMeteoClient:
             logger.error(f"Error parsing weather data: {e}")
             return pd.DataFrame()
 
+    def _fetch_multi_location_chunk(
+        self,
+        locations: List[Dict[str, float]],
+        date_debut: datetime,
+        date_fin: datetime,
+        variables: List[str]
+    ) -> pd.DataFrame:
+        """
+        Récupère données météo pour plusieurs localisations en UNE seule requête API.
+        Open-Meteo supporte les coordonnées multiples séparées par des virgules.
+
+        Args:
+            locations: Liste de dict validés avec 'latitude', 'longitude', 'code_station'
+            date_debut: Date de début
+            date_fin: Date de fin
+            variables: Variables météo validées
+
+        Returns:
+            DataFrame avec toutes les données météo
+        """
+        # Préparer les coordonnées séparées par virgules
+        latitudes = [str(round(float(loc['latitude']), 6)) for loc in locations]
+        longitudes = [str(round(float(loc['longitude']), 6)) for loc in locations]
+
+        # Mapping vers noms API
+        api_variables = [self.AVAILABLE_VARIABLES[v] for v in variables]
+
+        # Paramètres requête avec multiple locations
+        params = {
+            "latitude": ",".join(latitudes),
+            "longitude": ",".join(longitudes),
+            "start_date": date_debut.strftime("%Y-%m-%d"),
+            "end_date": date_fin.strftime("%Y-%m-%d"),
+            "daily": ",".join(api_variables),
+            "timezone": "Europe/Paris"
+        }
+
+        # Apply rate limiting
+        self._apply_rate_limit()
+
+        try:
+            logger.debug(
+                f"Fetching weather data for {len(locations)} locations "
+                f"from {date_debut.date()} to {date_fin.date()} in single request"
+            )
+
+            response = self.session.get(self.BASE_URL, params=params, timeout=self.timeout)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # Avec multiple locations, la structure est différente
+            # data = [{"latitude": ..., "longitude": ..., "daily": {...}}, ...]
+            if isinstance(data, list):
+                # Mode multi-location
+                all_dfs = []
+                for i, location_data in enumerate(data):
+                    if 'daily' not in location_data or 'time' not in location_data['daily']:
+                        logger.warning(f"Location {i}: Malformed response, skipping")
+                        continue
+
+                    time_data = pd.to_datetime(location_data['daily']['time'])
+                    df_data = {
+                        'date': time_data.date if hasattr(time_data, 'date') else [d.date() for d in time_data],
+                        'latitude': location_data.get('latitude'),
+                        'longitude': location_data.get('longitude')
+                    }
+
+                    # Ajouter code_station si disponible
+                    if i < len(locations) and 'code_station' in locations[i]:
+                        df_data['code_station'] = locations[i]['code_station']
+
+                    # Ajouter variables
+                    for var_key, api_var in zip(variables, api_variables):
+                        if api_var in location_data['daily']:
+                            df_data[var_key] = location_data['daily'][api_var]
+
+                    all_dfs.append(pd.DataFrame(df_data))
+
+                if not all_dfs:
+                    return pd.DataFrame()
+
+                result = pd.concat(all_dfs, ignore_index=True)
+                logger.debug(f"Retrieved {len(result)} weather records for {len(all_dfs)} locations")
+                return result
+
+            else:
+                # Mode single location (fallback)
+                if 'daily' not in data or 'time' not in data['daily']:
+                    logger.error("Malformed API response")
+                    return pd.DataFrame()
+
+                time_data = pd.to_datetime(data['daily']['time'])
+                df_data = {
+                    'date': time_data.date if hasattr(time_data, 'date') else [d.date() for d in time_data]
+                }
+
+                # Ajouter première location
+                if locations:
+                    df_data['latitude'] = locations[0]['latitude']
+                    df_data['longitude'] = locations[0]['longitude']
+                    if 'code_station' in locations[0]:
+                        df_data['code_station'] = locations[0]['code_station']
+
+                # Ajouter variables
+                for var_key, api_var in zip(variables, api_variables):
+                    if api_var in data['daily']:
+                        df_data[var_key] = data['daily'][api_var]
+
+                return pd.DataFrame(df_data)
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error for batch: {e}")
+            return pd.DataFrame()
+
+        except (KeyError, ValueError) as e:
+            logger.error(f"Error parsing batch weather data: {e}")
+            return pd.DataFrame()
+
     def get_weather_batch(
         self,
         locations: List[Dict[str, float]],
         date_debut: datetime,
         date_fin: datetime,
-        variables: List[str] = None
+        variables: List[str] = None,
+        chunk_years: int = 10,
+        max_locations_per_request: int = 50
     ) -> pd.DataFrame:
         """
-        Récupère données météo pour plusieurs localisations.
+        Récupère données météo pour plusieurs localisations de manière optimisée.
+
+        Utilise l'API multi-location d'Open-Meteo pour minimiser le nombre de requêtes.
+        Les périodes longues sont divisées en chunks temporels.
 
         Args:
             locations: Liste de dict avec 'latitude', 'longitude', 'code_station'
             date_debut: Date de début
             date_fin: Date de fin
             variables: Variables météo à récupérer
+            chunk_years: Nombre d'années par chunk temporel (défaut: 10)
+            max_locations_per_request: Nombre max de locations par requête (défaut: 50)
 
         Returns:
             DataFrame avec toutes les données météo
@@ -256,59 +464,85 @@ class OpenMeteoClient:
             logger.warning("get_weather_batch called with empty locations list")
             return pd.DataFrame()
 
-        logger.info(
-            f"Fetching weather data for {len(locations)} locations "
-            f"from {date_debut.date()} to {date_fin.date()}"
-        )
+        # Variables par défaut
+        if variables is None:
+            variables = ["precipitation", "temperature", "evapotranspiration"]
 
-        all_data = []
-        success_count = 0
-        fail_count = 0
+        # Validation variables
+        invalid_vars = [v for v in variables if v not in self.AVAILABLE_VARIABLES]
+        if invalid_vars:
+            logger.warning(f"Variables non reconnues (ignorées): {invalid_vars}")
+            variables = [v for v in variables if v in self.AVAILABLE_VARIABLES]
 
-        for idx, loc in enumerate(locations, 1):
-            # Validation des données de localisation
+        if not variables:
+            logger.warning("No valid variables specified")
+            return pd.DataFrame()
+
+        # Valider et filtrer les locations
+        valid_locations = []
+        for idx, loc in enumerate(locations):
             if 'latitude' not in loc or 'longitude' not in loc:
-                logger.warning(f"Location {idx}: Missing latitude or longitude, skipping")
-                fail_count += 1
+                logger.warning(f"Location {idx}: Missing coordinates, skipping")
                 continue
 
             try:
                 lat = float(loc['latitude'])
                 lon = float(loc['longitude'])
-            except (ValueError, TypeError) as e:
-                logger.warning(
-                    f"Location {idx}: Invalid coordinate values "
-                    f"(lat={loc.get('latitude')}, lon={loc.get('longitude')}), skipping"
-                )
-                fail_count += 1
+                if self._validate_coordinates(lat, lon):
+                    valid_locations.append({
+                        'latitude': lat,
+                        'longitude': lon,
+                        'code_station': loc.get('code_station', f'loc_{idx}')
+                    })
+            except (ValueError, TypeError):
+                logger.warning(f"Location {idx}: Invalid coordinate values, skipping")
                 continue
 
-            df = self.get_weather_data(
-                lat,
-                lon,
-                date_debut,
-                date_fin,
-                variables
-            )
+        if not valid_locations:
+            logger.error("No valid locations found")
+            return pd.DataFrame()
 
-            if not df.empty:
-                # Ajouter identifiant station
-                if 'code_station' in loc:
-                    df['code_station'] = loc['code_station']
-                df['latitude'] = lat
-                df['longitude'] = lon
+        logger.info(
+            f"Fetching weather data for {len(valid_locations)} valid locations "
+            f"from {date_debut.date()} to {date_fin.date()}"
+        )
 
-                all_data.append(df)
-                success_count += 1
-            else:
-                fail_count += 1
+        # Diviser en chunks temporels ET chunks de locations
+        years_span = (date_fin - date_debut).days / 365.25
+        date_chunks = self._split_date_range(date_debut, date_fin, chunk_years) if years_span > chunk_years else [(date_debut, date_fin)]
 
-            # Log progress every 10 locations
-            if idx % 10 == 0:
-                logger.info(
-                    f"Progress: {idx}/{len(locations)} locations "
-                    f"({success_count} success, {fail_count} failed)"
+        # Diviser locations en batches
+        location_batches = [
+            valid_locations[i:i + max_locations_per_request]
+            for i in range(0, len(valid_locations), max_locations_per_request)
+        ]
+
+        logger.info(
+            f"Processing {len(date_chunks)} time chunks × {len(location_batches)} location batches "
+            f"= {len(date_chunks) * len(location_batches)} total API requests"
+        )
+
+        all_data = []
+        total_requests = len(date_chunks) * len(location_batches)
+        completed_requests = 0
+
+        for date_start, date_end in date_chunks:
+            for loc_batch in location_batches:
+                df_chunk = self._fetch_multi_location_chunk(
+                    loc_batch,
+                    date_start,
+                    date_end,
+                    variables
                 )
+
+                if not df_chunk.empty:
+                    all_data.append(df_chunk)
+
+                completed_requests += 1
+                if completed_requests % 5 == 0 or completed_requests == total_requests:
+                    logger.info(
+                        f"Progress: {completed_requests}/{total_requests} requests completed"
+                    )
 
         if not all_data:
             logger.warning("No weather data retrieved for any location")
@@ -317,7 +551,7 @@ class OpenMeteoClient:
         result = pd.concat(all_data, ignore_index=True)
         logger.info(
             f"Successfully retrieved weather data: {len(result)} total records "
-            f"from {success_count}/{len(locations)} locations"
+            f"from {len(valid_locations)} locations"
         )
 
         return result
