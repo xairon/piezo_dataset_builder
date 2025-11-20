@@ -296,9 +296,19 @@ def render_step_2_config():
         config = AppState.get('config')
         
         with col_date1:
-            d_start = st.date_input("Date de début", value=config['date_start'])
+            d_start = st.date_input(
+                "Date de début",
+                value=config['date_start'],
+                min_value=datetime(1940, 1, 1).date(),  # Open-Meteo historical data starts in 1940
+                max_value=datetime.now().date()
+            )
         with col_date2:
-            d_end = st.date_input("Date de fin", value=config['date_end'])
+            d_end = st.date_input(
+                "Date de fin",
+                value=config['date_end'],
+                min_value=datetime(1940, 1, 1).date(),
+                max_value=datetime.now().date()
+            )
             
         st.caption(f"Durée : {(d_end - d_start).days + 1} jours")
         
