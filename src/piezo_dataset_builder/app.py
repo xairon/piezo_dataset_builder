@@ -246,20 +246,50 @@ def render_step_1_upload():
                 try:
                     df_input = pd.read_csv(uploaded_file)
                     # Si on a qu'une seule colonne et qu'elle contient des ; ou , dans les valeurs, c'est suspect
-                    if len(df_input.columns) == 1 and df_input.iloc[0].astype(str).str.contains(';|,'):
+                    if len(df_input.columns) == 1 and df_input.iloc[0].astype(str).str.contains(';|,').any():
                          uploaded_file.seek(0)
                          df_input = pd.read_csv(uploaded_file, sep=';')
                 except:
                      uploaded_file.seek(0)
                      df_input = pd.read_csv(uploaded_file, sep=';')
 
-                codes_bss = extract_station_codes(df_input)
-                
+                # Si plusieurs colonnes, afficher sélecteur
+                selected_column = None
+                if len(df_input.columns) > 1:
+                    st.info(f"📋 Le fichier contient {len(df_input.columns)} colonnes. Sélectionnez celle contenant les codes BSS.")
+
+                    # Suggestion automatique basée sur les patterns
+                    suggested_col = None
+                    for col in df_input.columns:
+                        col_lower = col.lower()
+                        if any(pattern in col_lower for pattern in ['code_bss', 'bss_id', 'bss', 'code']):
+                            suggested_col = col
+                            break
+
+                    # Index de la colonne suggérée
+                    default_index = 0
+                    if suggested_col:
+                        default_index = list(df_input.columns).index(suggested_col)
+
+                    selected_column = st.selectbox(
+                        "Colonne contenant les codes BSS:",
+                        options=df_input.columns.tolist(),
+                        index=default_index,
+                        help="Sélectionnez la colonne qui contient les codes de stations piézométriques (BSS)"
+                    )
+
+                    st.caption(f"Aperçu des 5 premières valeurs de '{selected_column}':")
+                    st.code("\n".join([str(v) for v in df_input[selected_column].head(5).tolist()]))
+                else:
+                    st.info(f"📋 Une seule colonne détectée: '{df_input.columns[0]}' - Utilisation automatique")
+
+                codes_bss = extract_station_codes(df_input, column_name=selected_column)
+
                 if not codes_bss:
-                    st.error("❌ Aucun code BSS valide trouvé dans le fichier.")
+                    st.error("❌ Aucun code BSS valide trouvé dans la colonne sélectionnée.")
                     return
 
-                st.success(f"✅ {len(codes_bss)} codes détectés.")
+                st.success(f"✅ {len(codes_bss)} codes BSS détectés dans la colonne '{selected_column or df_input.columns[0]}'.")
                 
                 # Validation optionnelle mais recommandée
                 with st.expander("🔍 Validation des codes (Échantillon)", expanded=True):

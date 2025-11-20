@@ -184,17 +184,3 @@ piezo-dataset-builder/
 
 **Note :** Les données météo sont automatiquement associées à chaque station grâce aux coordonnées GPS extraites de Hub'Eau.
 
-## 🤝 Contribution
-
-Les contributions sont les bienvenues ! N'hésitez pas à :
-- Signaler des bugs
-- Proposer de nouvelles fonctionnalités
-- Soumettre des pull requests
-
-## 📄 Licence
-
-MIT - BRGM 2025
-
-## 📞 Support
-
-Pour toute question : contact@brgm.fr

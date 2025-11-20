@@ -52,17 +52,19 @@ def clean_bss_code(code: str) -> str:
     return code.strip()
 
 
-def extract_station_codes(df: pd.DataFrame) -> List[str]:
+def extract_station_codes(df: pd.DataFrame, column_name: str = None) -> List[str]:
     """
     Extrait automatiquement les codes BSS (stations piézométriques) du CSV.
 
     Stratégie :
-    1. Si une seule colonne → la prendre
-    2. Si plusieurs colonnes → chercher patterns (code*, bss*, station*)
-    3. Sinon → prendre première colonne
+    1. Si column_name est spécifié → utiliser cette colonne
+    2. Si une seule colonne → la prendre automatiquement
+    3. Si plusieurs colonnes → chercher patterns (code*, bss*, station*)
+    4. Sinon → prendre première colonne
 
     Args:
         df: DataFrame du CSV uploadé
+        column_name: Nom de la colonne à utiliser (optionnel)
 
     Returns:
         Liste des codes BSS uniques (strings)
@@ -73,8 +75,15 @@ def extract_station_codes(df: pd.DataFrame) -> List[str]:
 
     logger.debug(f"Extracting BSS codes from DataFrame with {len(df.columns)} columns")
 
+    # Cas 0 : Colonne spécifiée manuellement
+    if column_name:
+        if column_name not in df.columns:
+            logger.error(f"Specified column '{column_name}' not found in DataFrame")
+            return []
+        col = column_name
+        logger.info(f"Using manually selected column: '{col}'")
     # Cas 1 : Une seule colonne
-    if len(df.columns) == 1:
+    elif len(df.columns) == 1:
         col = df.columns[0]
         logger.info(f"Single column detected: using '{col}'")
     else:
