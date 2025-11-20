@@ -98,7 +98,6 @@ class AppState:
                     'include_stations': True,
                     'include_chroniques': True,
                     'include_meteo': True,
-                    'weather_source': 'open-meteo',
                     'station_fields': {
                         'libelle_station': True,
                         'nom_commune': True,
@@ -195,20 +194,18 @@ def render_sidebar():
         st.info("""
         **Attributs Stations :**
         Informations sur le point de mesure (Lieu, altitude, etc.)
-
+        
         **Niveaux de nappe :**
         Mesures piézométriques issues de Hub'Eau
-
+        
         **Météo :**
-        Données climatiques (Pluie, Temp...)
-        - Open-Meteo: API REST rapide
-        - ERA5: Données réanalyse depuis 1940
+        Données climatiques (Pluie, Temp...) issues d'Open-Meteo
         """)
         
         st.markdown("""
         <div style='font-size: 0.8rem; color: #666; margin-top: 20px;'>
-            v1.2.0<br>
-            Powered by Hub'Eau, Open-Meteo & ERA5
+            v1.1.0<br>
+            Powered by Hub'Eau & Open-Meteo
         </div>
         """, unsafe_allow_html=True)
 
@@ -394,25 +391,9 @@ def render_step_2_config():
         st.markdown("") # Spacer
 
         # --- 3. MÉTÉO ---
-        st.markdown("#### 🌦️ Météo")
-
-        # Choix de la source météo
-        weather_source = st.selectbox(
-            "Source de données météo",
-            options=["open-meteo", "era5"],
-            format_func=lambda x: {
-                "open-meteo": "Open-Meteo (API REST, gratuit, limites de rate)",
-                "era5": "ERA5 Copernicus (Gratuit, données depuis 1940, nécessite compte CDS)"
-            }[x],
-            index=["open-meteo", "era5"].index(config.get('weather_source', 'open-meteo')),
-            help="ERA5 recommandé pour données historiques longues (1940+) et grands volumes"
-        )
-
-        if weather_source == "era5":
-            st.info("ℹ️ ERA5 nécessite un compte Copernicus CDS et un fichier ~/.cdsapirc configuré. [Documentation](https://cds.climate.copernicus.eu/how-to-api)")
-
+        st.markdown("#### 🌦️ Météo (Open-Meteo)")
         col_m_check, col_m_opts = st.columns([1, 3])
-
+        
         with col_m_check:
             inc_meteo = st.checkbox("Inclure Météo", value=config['include_meteo'])
 
@@ -472,7 +453,6 @@ def render_step_2_config():
             AppState.update_config('include_stations', inc_stations)
             AppState.update_config('include_chroniques', inc_chroniques)
             AppState.update_config('include_meteo', inc_meteo)
-            AppState.update_config('weather_source', weather_source)
             AppState.update_config('daily_aggregation', daily)
             AppState.update_config('timeout', timeout)
             AppState.update_config('rate_limit_hubeau', rl_h)
@@ -558,8 +538,7 @@ def run_build_process():
         builder = DatasetBuilder(
             timeout=config['timeout'],
             rate_limit_hubeau=config['rate_limit_hubeau'],
-            rate_limit_meteo=config['rate_limit_meteo'],
-            weather_source=config.get('weather_source', 'open-meteo')
+            rate_limit_meteo=config['rate_limit_meteo']
         )
         
         df = builder.build_dataset(

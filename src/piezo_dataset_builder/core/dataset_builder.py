@@ -3,9 +3,7 @@ Construction du dataset complet depuis les codes de stations piézométriques.
 
 Données intégrées:
 - Hub'Eau Piézométrie: attributs stations + niveaux de nappe
-- Météo: données météorologiques (température air, précipitations, etc.)
-  - Open-Meteo: API REST (gratuit, limites de rate)
-  - ERA5: Copernicus Climate Data Store (gratuit, données depuis 1940, pas de rate limits)
+- Open-Meteo: données météorologiques (température air, précipitations, etc.)
 """
 
 import pandas as pd
@@ -15,7 +13,6 @@ import logging
 
 from ..api.hubeau import HubEauClient
 from ..api.meteo import OpenMeteoClient
-from ..api.era5 import ERA5Client
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +28,7 @@ class DatasetBuilder:
         self,
         timeout: int = 30,
         rate_limit_hubeau: float = 0.3,
-        rate_limit_meteo: float = 0.1,
-        weather_source: str = "open-meteo"
+        rate_limit_meteo: float = 0.1
     ):
         """
         Initialise le builder pour piézométrie.
@@ -41,39 +37,20 @@ class DatasetBuilder:
             timeout: Timeout pour les requêtes HTTP (secondes)
             rate_limit_hubeau: Rate limit pour Hub'Eau (secondes entre requêtes)
             rate_limit_meteo: Rate limit pour Open-Meteo (secondes entre requêtes)
-            weather_source: Source de données météo ("open-meteo" ou "era5")
         """
         self.hubeau_client = HubEauClient(
             timeout=timeout,
             rate_limit=rate_limit_hubeau
         )
-
-        self.weather_source = weather_source
-
-        if weather_source == "era5":
-            try:
-                self.meteo_client = ERA5Client()
-                logger.info("Initialized DatasetBuilder with ERA5 weather source")
-            except Exception as e:
-                logger.warning(
-                    f"Failed to initialize ERA5 client: {e}. "
-                    "Falling back to Open-Meteo."
-                )
-                self.meteo_client = OpenMeteoClient(
-                    timeout=timeout,
-                    rate_limit=rate_limit_meteo
-                )
-                self.weather_source = "open-meteo"
-        else:
-            self.meteo_client = OpenMeteoClient(
-                timeout=timeout,
-                rate_limit=rate_limit_meteo
-            )
+        self.meteo_client = OpenMeteoClient(
+            timeout=timeout,
+            rate_limit=rate_limit_meteo
+        )
 
         logger.info(
             f"Initialized DatasetBuilder for Piezometry "
             f"(timeout={timeout}s, hubeau_rate={rate_limit_hubeau}s, "
-            f"meteo_rate={rate_limit_meteo}s, weather_source={self.weather_source})"
+            f"meteo_rate={rate_limit_meteo}s)"
         )
 
     def build_dataset(
