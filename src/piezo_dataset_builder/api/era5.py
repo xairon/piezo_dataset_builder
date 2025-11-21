@@ -14,6 +14,7 @@ from typing import List, Dict, Optional
 import logging
 import os
 import tempfile
+import zipfile
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +145,7 @@ class ERA5Client:
         date_debut: datetime,
         date_fin: datetime,
         variables: List[str] = None,
+        progress_callback=None,
     ) -> pd.DataFrame:
         """
         Récupère les données météo pour plusieurs stations en une requête.
@@ -192,8 +194,8 @@ class ERA5Client:
             "west": max(min(lons) - 0.5, -180),
         }
 
-        # Télécharger les données pour toute la bbox
-        df_all = self._fetch_era5_data(bbox, date_debut, date_fin, era5_vars)
+        # Télécharger les données pour toute la bbox, avec les locations pour extraction optimisée
+        df_all = self._fetch_era5_data(bbox, date_debut, date_fin, era5_vars, locations, progress_callback)
 
         if df_all.empty:
             return df_all
@@ -230,6 +232,8 @@ class ERA5Client:
         date_debut: datetime,
         date_fin: datetime,
         era5_vars: List[str],
+        locations: List[Dict[str, float]] = None,
+        progress_callback=None,
     ) -> pd.DataFrame:
         """
         Télécharge les données ERA5 pour une bounding box.
@@ -243,18 +247,83 @@ class ERA5Client:
         Returns:
             DataFrame avec toutes les données
         """
+        # Découper en chunks de 2 ans max pour éviter les limites de taille
+        CHUNK_YEARS = 2
+        years = list(range(date_debut.year, date_fin.year + 1))
+
+        if len(years) > CHUNK_YEARS:
+            # Créer des chunks de 5 ans
+            chunks = []
+            for i in range(0, len(years), CHUNK_YEARS):
+                chunk_years = years[i:i + CHUNK_YEARS]
+                chunk_start = datetime(chunk_years[0], 1, 1) if chunk_years[0] > date_debut.year else date_debut
+                chunk_end = datetime(chunk_years[-1], 12, 31) if chunk_years[-1] < date_fin.year else date_fin
+                chunks.append((chunk_start, chunk_end, chunk_years))
+
+            logger.info(f"Splitting request into {len(chunks)} chunks of up to {CHUNK_YEARS} years")
+            dfs = []
+            for i, (chunk_start, chunk_end, chunk_years) in enumerate(chunks, 1):
+                years_str = f"{chunk_years[0]}-{chunk_years[-1]}" if len(chunk_years) > 1 else str(chunk_years[0])
+                msg = f"ERA5: Downloading chunk {i}/{len(chunks)} ({years_str})"
+                logger.info(f"[ERA5 Progress] {msg}")
+                if progress_callback:
+                    # Progress entre 60% et 80% pendant le téléchargement ERA5
+                    pct = 60 + int((i - 1) / len(chunks) * 20)
+                    progress_callback(pct, msg)
+                df_chunk = self._fetch_era5_chunk(bbox, chunk_start, chunk_end, era5_vars, locations)
+                if not df_chunk.empty:
+                    dfs.append(df_chunk)
+                    logger.info(f"[ERA5 Progress] Chunk {years_str} complete - {len(df_chunk)} records")
+            return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+
+        return self._fetch_era5_chunk(bbox, date_debut, date_fin, era5_vars, locations)
+
+    def _fetch_era5_chunk(
+        self,
+        bbox: Dict[str, float],
+        date_debut: datetime,
+        date_fin: datetime,
+        era5_vars: List[str],
+        locations: List[Dict[str, float]] = None,
+    ) -> pd.DataFrame:
+        """
+        Télécharge les données ERA5 pour une période (jusqu'à 5 ans).
+        """
         # Créer fichier temporaire pour le NetCDF
         with tempfile.NamedTemporaryFile(suffix=".nc", delete=False) as tmp:
             tmp_path = tmp.name
 
+        download_path = None
+        nc_path = None
+
         try:
+            # Générer la liste des années
+            years = list(range(date_debut.year, date_fin.year + 1))
+
+            # Pour un chunk multi-années, on demande tous les mois/jours
+            # Le filtrage par date exacte se fait après avec xarray
+            if len(years) > 1:
+                months = list(range(1, 13))
+                days = list(range(1, 32))
+            else:
+                # Pour une seule année, optimiser les mois/jours
+                months = set()
+                days = set()
+                current = date_debut
+                while current <= date_fin:
+                    months.add(current.month)
+                    days.add(current.day)
+                    current += timedelta(days=1)
+                months = sorted(months)
+                days = sorted(days)
+
             # Préparer la requête CDS
             request = {
                 "variable": era5_vars,
-                "year": [str(year) for year in range(date_debut.year, date_fin.year + 1)],
-                "month": [f"{m:02d}" for m in range(1, 13)],
-                "day": [f"{d:02d}" for d in range(1, 32)],
-                "time": [f"{h:02d}:00" for h in [0, 6, 12, 18]],  # 6-hourly
+                "year": [str(y) for y in years],
+                "month": [f"{m:02d}" for m in months],
+                "day": [f"{d:02d}" for d in days],
+                "time": ["00:00"],  # Cumul journalier (00h = cumul des 24h précédentes)
                 "area": [
                     bbox["north"],
                     bbox["west"],
@@ -264,26 +333,78 @@ class ERA5Client:
                 "format": "netcdf",
             }
 
-            logger.info(f"Downloading ERA5 data from CDS (this may take several minutes)...")
-            self.client.retrieve(self.DATASET_LAND, request, tmp_path)
+            years_str = f"{years[0]}-{years[-1]}" if len(years) > 1 else str(years[0])
+            logger.info(f"Downloading ERA5 data for {years_str} ({len(years)} years, {len(months)} months, {len(days)} days)...")
+
+            # Télécharger dans un fichier temporaire (peut être .zip ou .nc)
+            download_path = tmp_path.replace(".nc", ".download")
+            self.client.retrieve(self.DATASET_LAND, request, download_path)
+
+            # Vérifier si c'est un zip et extraire si nécessaire
+            nc_path = tmp_path
+            if zipfile.is_zipfile(download_path):
+                logger.info("Extracting downloaded zip file...")
+                with zipfile.ZipFile(download_path, 'r') as zf:
+                    # Trouver le fichier .nc dans le zip
+                    nc_files = [f for f in zf.namelist() if f.endswith('.nc')]
+                    if nc_files:
+                        zf.extract(nc_files[0], os.path.dirname(tmp_path))
+                        nc_path = os.path.join(os.path.dirname(tmp_path), nc_files[0])
+                    else:
+                        raise RuntimeError("No NetCDF file found in downloaded zip")
+                os.remove(download_path)
+            else:
+                # Fichier déjà en NetCDF
+                os.rename(download_path, nc_path)
 
             # Charger le NetCDF avec xarray
-            ds = xr.open_dataset(tmp_path)
+            ds = xr.open_dataset(nc_path, engine="netcdf4")
+
+            # Déterminer le nom de la dimension temporelle (time ou valid_time)
+            time_dim = "valid_time" if "valid_time" in ds.dims else "time"
 
             # Filtrer par dates
             ds = ds.sel(
-                time=slice(
+                {time_dim: slice(
                     date_debut.strftime("%Y-%m-%d"), date_fin.strftime("%Y-%m-%d")
-                )
+                )}
             )
 
-            # Convertir en DataFrame
-            df = ds.to_dataframe().reset_index()
+            # Si on a des locations, extraire uniquement les points les plus proches
+            # pour éviter de charger toute la grille en mémoire
+            if locations:
+                dfs = []
+                grid_lats = ds.latitude.values
+                grid_lons = ds.longitude.values
+
+                for loc in locations:
+                    # Trouver le point de grille le plus proche
+                    lat_idx = np.abs(grid_lats - loc["latitude"]).argmin()
+                    lon_idx = np.abs(grid_lons - loc["longitude"]).argmin()
+                    nearest_lat = grid_lats[lat_idx]
+                    nearest_lon = grid_lons[lon_idx]
+
+                    # Extraire les données pour ce point
+                    ds_point = ds.sel(latitude=nearest_lat, longitude=nearest_lon)
+                    df_point = ds_point.to_dataframe().reset_index()
+                    df_point["latitude"] = nearest_lat
+                    df_point["longitude"] = nearest_lon
+                    dfs.append(df_point)
+
+                df = pd.concat(dfs, ignore_index=True)
+                logger.info(f"Extracted {len(locations)} station points from ERA5 grid")
+            else:
+                # Convertir toute la grille en DataFrame
+                df = ds.to_dataframe().reset_index()
 
             # Nettoyer les noms de colonnes
             df = df.rename(
-                columns={"time": "date", "latitude": "latitude", "longitude": "longitude"}
+                columns={time_dim: "date", "time": "date", "latitude": "latitude", "longitude": "longitude"}
             )
+
+            # Décaler la date de -1 jour car les valeurs à 00:00 du jour J
+            # représentent le cumul du jour J-1 (pour précip, ET, radiation)
+            df["date"] = pd.to_datetime(df["date"]) - pd.Timedelta(days=1)
 
             # Convertir les unités et agréger par jour
             df = self._process_era5_data(df, era5_vars)
@@ -318,9 +439,13 @@ class ERA5Client:
                 ) from e
 
         finally:
-            # Nettoyer le fichier temporaire
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+            # Nettoyer les fichiers temporaires
+            for path in [tmp_path, download_path, nc_path]:
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
 
     def _process_era5_data(
         self, df: pd.DataFrame, era5_vars: List[str]
@@ -335,8 +460,22 @@ class ERA5Client:
         Returns:
             DataFrame traité et agrégé par jour
         """
+        # Supprimer les colonnes inutiles (expver, number)
+        df = df.drop(columns=["expver", "number"], errors="ignore")
+
         # Convertir la date en date uniquement (pas de temps)
         df["date"] = pd.to_datetime(df["date"]).dt.date
+
+        # Mapping des noms courts ERA5 (NetCDF) vers noms longs
+        short_to_long = {
+            "tp": "total_precipitation",
+            "t2m": "2m_temperature",
+            "pev": "potential_evaporation",
+            "d2m": "2m_dewpoint_temperature",
+            "si10": "10m_wind_speed",
+            "ssrd": "surface_solar_radiation_downwards",
+        }
+        df = df.rename(columns=short_to_long)
 
         # Conversions d'unités
         if "total_precipitation" in df.columns:

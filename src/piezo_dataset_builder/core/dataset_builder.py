@@ -213,7 +213,8 @@ class DatasetBuilder:
                 df_base,
                 date_start,
                 date_end,
-                meteo_variables or ['precipitation', 'temperature', 'evapotranspiration']
+                meteo_variables or ['precipitation', 'temperature', 'evapotranspiration'],
+                progress_callback=update_progress
             )
             update_progress(80, "Weather data added")
         else:
@@ -414,7 +415,8 @@ class DatasetBuilder:
         df: pd.DataFrame,
         date_start: datetime,
         date_end: datetime,
-        variables: List[str]
+        variables: List[str],
+        progress_callback: Optional[Callable[[int, str], None]] = None
     ) -> pd.DataFrame:
         """Ajoute données météo ERA5 (température, précipitations, etc.) au DataFrame."""
         # Extraire stations uniques avec coordonnées
@@ -456,7 +458,8 @@ class DatasetBuilder:
             locations,
             date_start,
             date_end,
-            variables
+            variables,
+            progress_callback=progress_callback
         )
 
         if df_meteo.empty:

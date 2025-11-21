@@ -12,7 +12,7 @@ import time
 
 from piezo_dataset_builder.core.validator import extract_station_codes, validate_station_codes
 from piezo_dataset_builder.core.dataset_builder import DatasetBuilder
-from piezo_dataset_builder.utils.export import to_csv, to_excel, to_json, get_export_stats
+from piezo_dataset_builder.utils.export import to_csv, to_excel, to_json, to_zip_by_station, get_export_stats
 
 # ============================================================
 # LOGGING CONFIGURATION
@@ -669,6 +669,30 @@ def render_step_4_result():
                 data=to_json(df),
                 file_name=f"{filename}.json",
                 mime="application/json",
+                use_container_width=True
+            )
+
+        st.divider()
+        st.subheader("Archive par station")
+        st.caption("Téléchargez une archive ZIP contenant un fichier par station")
+
+        c4, c5 = st.columns(2)
+
+        with c4:
+            st.download_button(
+                "📦 Archive ZIP (CSV)",
+                data=to_zip_by_station(df, 'csv'),
+                file_name=f"{filename}_par_station.zip",
+                mime="application/zip",
+                use_container_width=True
+            )
+
+        with c5:
+            st.download_button(
+                "📦 Archive ZIP (Excel)",
+                data=to_zip_by_station(df, 'excel'),
+                file_name=f"{filename}_par_station.zip",
+                mime="application/zip",
                 use_container_width=True
             )
 

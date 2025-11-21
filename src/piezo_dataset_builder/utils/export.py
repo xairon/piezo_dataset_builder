@@ -5,6 +5,7 @@ Utilitaires pour l'export de données.
 import pandas as pd
 from io import BytesIO, StringIO
 import logging
+import zipfile
 from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger(__name__)
@@ -154,3 +155,54 @@ def get_export_stats(df: pd.DataFrame) -> dict:
 
     logger.debug(f"Export stats: {stats}")
     return stats
+
+
+def to_zip_by_station(df: pd.DataFrame, file_format: str = 'csv') -> bytes:
+    """
+    Exporte DataFrame en archive ZIP avec un fichier par station.
+
+    Args:
+        df: DataFrame à exporter
+        file_format: Format des fichiers ('csv' ou 'excel')
+
+    Returns:
+        Bytes du fichier ZIP
+    """
+    # Déterminer la colonne station
+    station_col = 'code_bss' if 'code_bss' in df.columns else 'code_station'
+
+    if station_col not in df.columns:
+        raise ValueError(f"No station column found (code_bss or code_station)")
+
+    buffer = BytesIO()
+
+    try:
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            stations = df[station_col].unique()
+
+            for station in stations:
+                df_station = df[df[station_col] == station]
+
+                # Nettoyer le nom de fichier (remplacer caractères invalides)
+                safe_name = str(station).replace('/', '_').replace('\\', '_')
+
+                if file_format == 'csv':
+                    content = df_station.to_csv(index=False).encode('utf-8')
+                    filename = f"{safe_name}.csv"
+                elif file_format == 'excel':
+                    excel_buffer = BytesIO()
+                    df_station.to_excel(excel_buffer, index=False, engine='openpyxl')
+                    content = excel_buffer.getvalue()
+                    filename = f"{safe_name}.xlsx"
+                else:
+                    raise ValueError(f"Unknown format: {file_format}")
+
+                zf.writestr(filename, content)
+
+            logger.info(f"Exported ZIP archive: {len(stations)} station files ({file_format})")
+
+        return buffer.getvalue()
+
+    except Exception as e:
+        logger.error(f"Error exporting to ZIP: {e}")
+        raise
