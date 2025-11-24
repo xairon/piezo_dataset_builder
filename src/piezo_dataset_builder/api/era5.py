@@ -162,6 +162,25 @@ class ERA5Client:
         if not locations:
             return pd.DataFrame()
 
+        # Validation: ERA5 data is not available for very recent dates (5-day delay minimum)
+        today = datetime.now()
+        max_date = today - timedelta(days=7)  # Use 7 days to be safe
+
+        if date_fin > max_date:
+            logger.warning(
+                f"ERA5 data requested until {date_fin.date()}, but data is only available "
+                f"up to approximately {max_date.date()} (7-day delay). "
+                f"Adjusting end date to {max_date.date()}."
+            )
+            date_fin = max_date
+
+        if date_debut > max_date:
+            raise ValueError(
+                f"Cannot fetch ERA5 data: start date {date_debut.date()} is too recent. "
+                f"ERA5 has approximately a 5-7 day delay. "
+                f"Data is available up to approximately {max_date.date()}."
+            )
+
         if variables is None:
             variables = ["precipitation", "temperature", "evapotranspiration"]
 
@@ -433,6 +452,19 @@ class ERA5Client:
                 raise RuntimeError(
                     "❌ Erreur 401 Unauthorized : Token API invalide ou expiré.\n\n"
                     "Vérifiez votre token sur : https://cds.climate.copernicus.eu/profile"
+                ) from e
+            elif "No space left on device" in error_msg or "MARS" in error_msg:
+                raise RuntimeError(
+                    "❌ Erreur serveur ERA5 (Copernicus CDS) : Le serveur rencontre des problèmes techniques.\n\n"
+                    "Causes possibles :\n"
+                    "1. Serveur MARS saturé (No space left on device)\n"
+                    "2. Données trop récentes demandées (ERA5 a un délai de 5-7 jours)\n"
+                    "3. Requête trop volumineuse\n\n"
+                    "Solutions :\n"
+                    "- Réessayez dans quelques heures\n"
+                    "- Réduisez la période de temps demandée\n"
+                    "- Vérifiez que la date de fin n'est pas trop récente (aujourd'hui - 7 jours minimum)\n\n"
+                    f"Erreur technique : {error_msg[:500]}"
                 ) from e
             else:
                 raise RuntimeError(
