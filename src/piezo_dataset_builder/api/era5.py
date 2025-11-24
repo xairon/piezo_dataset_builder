@@ -53,12 +53,12 @@ class ERA5Client:
                 self.client = cdsapi.Client(
                     url="https://cds.climate.copernicus.eu/api",
                     key=api_token,
-                    verify=True
+                    verify=False  # Désactiver vérification SSL (problème certificat auto-signé)
                 )
             else:
                 # Utiliser le fichier ~/.cdsapirc par défaut
                 logger.info("Using credentials from ~/.cdsapirc")
-                self.client = cdsapi.Client()
+                self.client = cdsapi.Client(verify=False)
 
             logger.info("ERA5 client initialized successfully")
         except Exception as e:
