@@ -35,8 +35,8 @@ test:
     - merge_requests
     - master
     - era5-integration
-  tags:
-    - hubeau
+  # tags:
+  #   - hubeau  # Temporairement désactivé - activer quand le runner sera configuré
 
 # Build de l'image Docker
 build:
@@ -50,8 +50,8 @@ build:
   only:
     - master
     - era5-integration
-  tags:
-    - hubeau
+  # tags:
+  #   - hubeau  # Temporairement désactivé - activer quand le runner sera configuré
 
 # Déploiement sur serveur (à adapter selon votre infrastructure)
 deploy_staging:
@@ -81,8 +81,8 @@ deploy_staging:
   only:
     - era5-integration
   when: manual
-  tags:
-    - hubeau
+  # tags:
+  #   - hubeau  # Temporairement désactivé - activer quand le runner sera configuré
 
 deploy_production:
   extends: .docker_template
@@ -110,8 +110,8 @@ deploy_production:
   only:
     - master
   when: manual
-  tags:
-    - hubeau
+  # tags:
+  #   - hubeau  # Temporairement désactivé - activer quand le runner sera configuré
 
 # Job de nettoyage des images Docker anciennes
 cleanup:
@@ -122,5 +122,5 @@ cleanup:
     - docker image prune -a -f --filter "until=168h"
   only:
     - schedules
-  tags:
-    - hubeau
+  # tags:
+  #   - hubeau  # Temporairement désactivé - activer quand le runner sera configuré
