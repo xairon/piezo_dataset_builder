@@ -116,7 +116,6 @@ class AppState:
                         'wind': False,
                         'radiation': False
                     },
-                    'daily_aggregation': True,
                     'timeout': 30,
                     'rate_limit_hubeau': 0.1
                 }
@@ -449,10 +448,6 @@ def render_step_2_config():
         
         st.markdown("---")
 
-        # --- OPTIONS GLOBALES ---
-        st.subheader("⚙️ Traitement")
-        daily = st.checkbox("Agrégation journalière (Moyenne)", value=config['daily_aggregation'])
-
         # Options avancées
         with st.expander("Paramètres avancés API"):
             c_to, c_rl1 = st.columns(2)
@@ -481,7 +476,6 @@ def render_step_2_config():
             AppState.update_config('include_chroniques', inc_chroniques)
             AppState.update_config('include_meteo', inc_meteo)
             AppState.update_config('copernicus_api_token', copernicus_api_token)
-            AppState.update_config('daily_aggregation', daily)
             AppState.update_config('timeout', timeout)
             AppState.update_config('rate_limit_hubeau', rl_h)
             
@@ -577,7 +571,6 @@ def run_build_process():
             meteo_variables=meteo_vars_list,
             station_fields=station_fields_list,
             chronique_fields=chronique_fields_list,
-            daily_aggregation=config['daily_aggregation'],
             progress_callback=progress_callback
         )
         

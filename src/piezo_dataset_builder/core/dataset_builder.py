@@ -61,7 +61,6 @@ class DatasetBuilder:
         meteo_variables: List[str] = None,
         station_fields: List[str] = None,
         chronique_fields: List[str] = None,
-        daily_aggregation: bool = True,
         progress_callback: Optional[Callable[[int, str], None]] = None
     ) -> pd.DataFrame:
         """
@@ -77,7 +76,6 @@ class DatasetBuilder:
             meteo_variables: Variables météo à récupérer (default: precipitation, temperature, evapotranspiration)
             station_fields: Liste des attributs stations à conserver (None = tous)
             chronique_fields: Liste des attributs chroniques à conserver (None = tous)
-            daily_aggregation: Agréger les données au niveau journalier
             progress_callback: Optional callback(progress_pct, message) for progress updates
 
         Returns:
@@ -221,11 +219,6 @@ class DatasetBuilder:
             if include_meteo and 'latitude' not in df_base.columns:
                 logger.warning("Cannot add weather data: no GPS coordinates available")
             update_progress(80, "Skipping weather data")
-
-        # 4. Agrégation journalière si demandée
-        if daily_aggregation and not df_base.empty:
-            update_progress(85, "Performing daily aggregation...")
-            df_base = self._aggregate_daily(df_base)
 
         # Tri final
         if not df_base.empty and 'date' in df_base.columns:
@@ -489,65 +482,3 @@ class DatasetBuilder:
         logger.info(f"Weather data merged: {len(df)} rows")
 
         return df
-
-    def _aggregate_daily(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Agrège les données au niveau journalier.
-        Moyenne pour valeurs numériques, première valeur pour le reste.
-
-        Important: On groupe UNIQUEMENT par (code_bss, date) pour éviter de
-        créer des groupes différents à cause de variations mineures dans les
-        coordonnées GPS ou autres attributs de station.
-        """
-        if 'date' not in df.columns:
-            logger.warning("No 'date' column found, skipping aggregation")
-            return df
-
-        # Colonnes de groupement: SEULEMENT code_bss + date
-        # Ne PAS ajouter latitude/longitude/commune car ce sont des ATTRIBUTS de station,
-        # pas des clés de groupement. Si on les ajoute, on risque de créer des groupes
-        # séparés pour la même station à cause d'arrondis GPS différents.
-        group_cols = ['code_bss', 'date']
-
-        # Identifier toutes les colonnes à agréger
-        agg_dict = {}
-
-        # Colonnes numériques → moyenne (sauf si déjà dans group_cols)
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-        for col in numeric_cols:
-            if col not in group_cols:
-                agg_dict[col] = 'mean'
-
-        # Colonnes texte → première valeur
-        text_cols = df.select_dtypes(include=['object']).columns.tolist()
-        for col in text_cols:
-            if col not in group_cols:
-                agg_dict[col] = 'first'
-
-        if not agg_dict:
-            # Pas de colonnes à agréger, juste dédupliquer
-            logger.debug("No columns to aggregate, deduplicating by (code_bss, date)")
-            return df.drop_duplicates(subset=group_cols)
-
-        logger.debug(
-            f"Aggregating by (code_bss, date): "
-            f"{len([k for k, v in agg_dict.items() if v == 'mean'])} numeric cols (mean), "
-            f"{len([k for k, v in agg_dict.items() if v == 'first'])} text cols (first)"
-        )
-
-        # Agrégation
-        df_agg = df.groupby(group_cols, as_index=False).agg(agg_dict)
-
-        logger.info(
-            f"Daily aggregation complete: {len(df)} rows -> {len(df_agg)} rows "
-            f"({len(df) - len(df_agg)} duplicates removed)"
-        )
-
-        # Log détaillé du nombre de stations uniques
-        stations_before = df['code_bss'].nunique()
-        stations_after = df_agg['code_bss'].nunique()
-        logger.info(
-            f"Stations preserved: {stations_before} before → {stations_after} after aggregation"
-        )
-
-        return df_agg
