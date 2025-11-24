@@ -336,9 +336,7 @@ def render_step_2_config():
                 min_value=datetime(1940, 1, 1).date(),  # ERA5 data up to present
                 max_value=datetime.now().date()
             )
-            
-        st.caption(f"Durée : {(d_end - d_start).days + 1} jours")
-        
+
         st.markdown("---")
         st.subheader("🛠️ Sources de données & Attributs")
         
