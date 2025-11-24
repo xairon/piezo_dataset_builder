@@ -12,11 +12,13 @@ variables:
 
 # Template pour les jobs Docker
 .docker_template:
-  image: docker:24-dind
-  services:
-    - docker:24-dind
+  image: docker:24
+  # services:  # Commenté - on utilise le Docker de l'hôte
+  #   - docker:24-dind
   before_script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker info  # Test que Docker fonctionne
+    # Désactivé temporairement - Container Registry non configuré
+    # - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
 
 # Tests Python (optionnel, à activer si vous avez des tests)
 test:
@@ -43,9 +45,12 @@ build:
   stage: build
   script:
     - echo "Building Docker image..."
-    - docker build -t $IMAGE_NAME:$IMAGE_TAG -t $IMAGE_NAME:latest .
-    - docker push $IMAGE_NAME:$IMAGE_TAG
-    - docker push $IMAGE_NAME:latest
+    - docker build -t piezo-dataset-builder:$CI_COMMIT_SHORT_SHA -t piezo-dataset-builder:latest .
+    - docker images | grep piezo-dataset-builder
+    - echo "✅ Build successful! Image created locally."
+    # Push désactivé temporairement - Container Registry non configuré
+    # - docker push $IMAGE_NAME:$IMAGE_TAG
+    # - docker push $IMAGE_NAME:latest
   only:
     - master
   tags:
