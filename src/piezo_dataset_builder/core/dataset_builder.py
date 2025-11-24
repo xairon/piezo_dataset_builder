@@ -184,8 +184,25 @@ class DatasetBuilder:
                 df_base = self._create_date_station_grid(
                     df_stations,
                     date_start,
-                    date_end
+                    date_end,
+                    requested_codes=codes_bss
                 )
+
+                # Agrégation journalière des chroniques pour éviter les doublons lors du merge
+                # On fait une moyenne des niveaux si plusieurs mesures par jour
+                # Pour les colonnes non numériques (qualité, statut), on prend la première valeur
+                agg_dict = {}
+                for col in df_chroniques.columns:
+                    if col in ['code_bss', 'date']:
+                        continue
+                    if pd.api.types.is_numeric_dtype(df_chroniques[col]):
+                        agg_dict[col] = 'mean'
+                    else:
+                        agg_dict[col] = 'first'
+                
+                if agg_dict:
+                    df_chroniques = df_chroniques.groupby(['code_bss', 'date'], as_index=False).agg(agg_dict)
+                    logger.debug("Aggregated chroniques to daily values to ensure unique keys for merge")
 
                 # Merger les chroniques disponibles (left join pour garder toutes les dates/stations)
                 df_base = df_base.merge(
@@ -205,7 +222,8 @@ class DatasetBuilder:
                 df_base = self._create_date_station_grid(
                     df_stations,
                     date_start,
-                    date_end
+                    date_end,
+                    requested_codes=codes_bss
                 )
         else:
             # Créer grille sans chroniques
@@ -213,7 +231,8 @@ class DatasetBuilder:
             df_base = self._create_date_station_grid(
                 df_stations,
                 date_start,
-                date_end
+                date_end,
+                requested_codes=codes_bss
             )
             update_progress(50, f"Created grid: {len(df_base)} rows")
 
@@ -425,22 +444,31 @@ class DatasetBuilder:
         self,
         df_stations: pd.DataFrame,
         date_start: datetime,
-        date_end: datetime
+        date_end: datetime,
+        requested_codes: List[str] = None
     ) -> pd.DataFrame:
         """
         Crée une grille date × station de manière optimisée.
         Utile pour avoir données météo même sans mesures de nappe.
-
-        Optimisation: Utilise MultiIndex.from_product au lieu de boucles imbriquées.
+        
+        Args:
+            requested_codes: Liste explicite des codes BSS à inclure (pour ne pas perdre ceux sans métadonnées)
         """
         logger.debug("Creating optimized date×station grid")
 
         # Générer range de dates
         dates = pd.date_range(date_start, date_end, freq='D').date
 
-        # Extraire codes BSS uniques
-        df_stations_unique = df_stations.drop_duplicates(subset=['code_bss'])
-        codes_bss = df_stations_unique['code_bss'].values
+        # Déterminer la liste des stations pour la grille
+        if requested_codes:
+            codes_bss = requested_codes
+        else:
+            # Fallback sur les stations trouvées dans df_stations
+            df_stations_unique = df_stations.drop_duplicates(subset=['code_bss'])
+            codes_bss = df_stations_unique['code_bss'].values
+            
+        # S'assurer que codes_bss est une liste unique
+        codes_bss = list(set(codes_bss))
 
         # Créer produit cartésien avec MultiIndex (beaucoup plus rapide)
         index = pd.MultiIndex.from_product(
@@ -452,7 +480,9 @@ class DatasetBuilder:
         df_grid = pd.DataFrame(index=index).reset_index()
 
         # Joindre avec les attributs stations
-        df_grid = df_grid.merge(df_stations, on='code_bss', how='left')
+        # Si df_stations est vide ou incomplet, le left join gardera quand même les codes_bss dans la grille
+        if not df_stations.empty:
+            df_grid = df_grid.merge(df_stations, on='code_bss', how='left')
 
         logger.info(
             f"Created grid: {len(codes_bss)} stations × {len(dates)} days "

@@ -14,7 +14,7 @@ Features:
 import requests
 import pandas as pd
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import time
 import threading
@@ -318,7 +318,7 @@ class HubEauClient:
     ) -> pd.DataFrame:
         """
         Récupère les chroniques pour plusieurs stations piézométriques.
-        Optimisé: Utilise l'API batch avec plusieurs codes BSS par requête.
+        Utilise la pagination de l'API Hub'Eau pour récupérer toutes les données.
 
         Args:
             codes_bss: Liste des codes BSS
@@ -333,86 +333,103 @@ class HubEauClient:
             return pd.DataFrame()
 
         logger.info(
-            f"Fetching chroniques for {len(codes_bss)} piezometric stations "
-            f"from {date_debut.date()} to {date_fin.date()}"
+            f"Fetching chroniques for {len(codes_bss)} stations "
+            f"from {date_debut.date()} to {date_fin.date()} using pagination"
         )
 
-        url = self.base_url + self.CHRONIQUES_ENDPOINT
-
-        # Hub'Eau accepte plusieurs codes BSS dans une requête (séparés par virgule)
-        # On va faire des batchs de 20 codes pour équilibrer taille réponse et nombre de requêtes
-        batch_size = 20
         all_data = []
-        success_count = 0
-        fail_count = 0
-
+        
+        # Batchs de stations (inchangé pour ne pas faire une URL trop longue)
+        url = self.base_url + self.CHRONIQUES_ENDPOINT
+        batch_size = 20
+        
         num_batches = (len(codes_bss) + batch_size - 1) // batch_size
-
+        
         for i in range(0, len(codes_bss), batch_size):
             batch = codes_bss[i:i+batch_size]
             batch_num = i // batch_size + 1
 
+            # Initial params
             params = {
                 'code_bss': ','.join(batch),
-                'size': 20000,
+                'size': 20000, # Max allowed by API per page
                 'date_debut_mesure': date_debut.strftime("%Y-%m-%d"),
                 'date_fin_mesure': date_fin.strftime("%Y-%m-%d")
             }
+            
+            current_url = url
+            page_count = 0
+            
+            while current_url:
+                page_count += 1
+                context_str = f"Batch {batch_num}/{num_batches} - Page {page_count}"
+                
+                # Si ce n'est pas la première page, les params sont dans l'URL 'next'
+                # Donc on ne passe params que si on est sur l'URL de base
+                # MAIS requests.session.get merge les params.
+                # L'URL 'next' fournie par Hub'Eau contient déjà les paramètres.
+                # Donc pour la page 1: on utilise 'url' + 'params'
+                # Pour page > 1: on utilise 'current_url' (qui est le lien next) et params=None
+                
+                request_params = params if page_count == 1 else None
+                
+                response = self._make_request(
+                    current_url,
+                    request_params,
+                    context=context_str
+                )
 
-            response = self._make_request(
-                url,
-                params,
-                context=f"Chroniques Batch {batch_num}/{num_batches}"
-            )
+                if not response:
+                    logger.warning(f"{context_str} failed, stopping pagination for this batch")
+                    break
 
-            if not response:
-                logger.warning(f"Batch {batch_num}/{num_batches} failed, skipping {len(batch)} stations")
-                fail_count += len(batch)
-                continue
+                try:
+                    data = response.json()
+                    
+                    # Récupérer les données
+                    if 'data' in data and data['data']:
+                        df = pd.DataFrame(data['data'])
+                        
+                        # Normaliser colonnes dates
+                        if 'date_mesure' in df.columns:
+                            df['date_mesure'] = pd.to_datetime(df['date_mesure'], errors='coerce')
+                            df['date'] = df['date_mesure'].dt.date
 
-            try:
-                data = response.json()
-
-                if 'data' in data and data['data']:
-                    df = pd.DataFrame(data['data'])
-
-                    # Normaliser colonnes dates
-                    if 'date_mesure' in df.columns:
-                        df['date_mesure'] = pd.to_datetime(df['date_mesure'], errors='coerce')
-                        df['date'] = df['date_mesure'].dt.date
-
-                    all_data.append(df)
-
-                    # Compter les stations avec des données
-                    stations_with_data = df['code_bss'].nunique() if 'code_bss' in df.columns else 0
-                    success_count += stations_with_data
-                    fail_count += len(batch) - stations_with_data
-
-                    logger.debug(f"Batch {batch_num}: Got {len(df)} records from {stations_with_data} stations")
-                else:
-                    logger.warning(f"Batch {batch_num}: No data returned for {len(batch)} stations")
-                    fail_count += len(batch)
-
-            except (ValueError, KeyError) as e:
-                logger.error(f"Batch {batch_num}: Error parsing response: {e}")
-                fail_count += len(batch)
-                continue
-
-            # Log progress
-            total_processed = min((batch_num) * batch_size, len(codes_bss))
-            logger.info(
-                f"Progress: {total_processed}/{len(codes_bss)} stations "
-                f"({success_count} success, {fail_count} no data)"
-            )
+                        all_data.append(df)
+                        logger.debug(f"{context_str}: Got {len(df)} records")
+                    else:
+                        # Pas de données, fin de pagination probable (ou période vide)
+                        logger.debug(f"{context_str}: No data returned")
+                        break
+                    
+                    # Gérer la pagination via le lien 'next'
+                    if 'next' in data and data['next']:
+                        current_url = data['next']
+                        # Le lien next est parfois relatif ou absolu, requests gère bien les absolus.
+                        # Hub'Eau renvoie une URL absolue.
+                    else:
+                        current_url = None
+                        
+                except (ValueError, KeyError) as e:
+                    logger.error(f"{context_str}: Error parsing response: {e}")
+                    break
 
         if not all_data:
             logger.warning("No chroniques data retrieved for any station")
             return pd.DataFrame()
 
         result = pd.concat(all_data, ignore_index=True)
+        
+        # Supprimer les doublons potentiels (sécurité)
+        if not result.empty and 'code_bss' in result.columns and 'date_mesure' in result.columns:
+            before_dedup = len(result)
+            result = result.drop_duplicates(subset=['code_bss', 'date_mesure'])
+            if before_dedup != len(result):
+                logger.debug(f"Deduplicated {before_dedup - len(result)} records")
+
         logger.info(
             f"Successfully retrieved chroniques: {len(result)} total records "
-            f"from {success_count}/{len(codes_bss)} stations"
+            f"from {result['code_bss'].nunique()}/{len(codes_bss)} stations"
         )
 
         return result

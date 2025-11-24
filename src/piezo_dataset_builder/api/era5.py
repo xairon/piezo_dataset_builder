@@ -459,19 +459,19 @@ class ERA5Client:
             # Message d'erreur personnalisé selon le type d'erreur
             if "403" in error_msg and "Forbidden" in error_msg:
                 raise RuntimeError(
-                    "❌ Erreur 403 Forbidden : Vous devez accepter la licence ERA5-Land.\n\n"
-                    "👉 Cliquez ici pour accepter (gratuit, 1 clic) :\n"
+                    "X Erreur 403 Forbidden : Vous devez accepter la licence ERA5-Land.\n\n"
+                    "-> Cliquez ici pour accepter (gratuit, 1 clic) :\n"
                     "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land?tab=download#manage-licences\n\n"
-                    "Après avoir accepté, réessayez de lancer le build."
+                    "Apres avoir accepte, reessayez de lancer le build."
                 ) from e
             elif "401" in error_msg or "Unauthorized" in error_msg:
                 raise RuntimeError(
-                    "❌ Erreur 401 Unauthorized : Token API invalide ou expiré.\n\n"
-                    "Vérifiez votre token sur : https://cds.climate.copernicus.eu/profile"
+                    "X Erreur 401 Unauthorized : Token API invalide ou expire.\n\n"
+                    "Verifiez votre token sur : https://cds.climate.copernicus.eu/profile"
                 ) from e
             elif "No space left on device" in error_msg or "MARS" in error_msg:
                 raise RuntimeError(
-                    "❌ Erreur serveur ERA5 (Copernicus CDS) : Le serveur rencontre des problèmes techniques.\n\n"
+                    "X Erreur serveur ERA5 (Copernicus CDS) : Le serveur rencontre des problemes techniques.\n\n"
                     "Causes possibles :\n"
                     "1. Serveur MARS saturé (No space left on device)\n"
                     "2. Données trop récentes demandées (ERA5 a un délai de 5-7 jours)\n"
