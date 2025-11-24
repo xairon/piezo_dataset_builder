@@ -1,0 +1,124 @@
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+  # Nom de l'image Docker
+  IMAGE_NAME: $CI_REGISTRY_IMAGE
+  IMAGE_TAG: $CI_COMMIT_REF_SLUG
+
+# Template pour les jobs Docker
+.docker_template:
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+# Tests Python (optionnel, à activer si vous avez des tests)
+test:
+  stage: test
+  image: python:3.12-slim
+  before_script:
+    - pip install --no-cache-dir --upgrade pip
+    - pip install --no-cache-dir -e .
+    - pip install --no-cache-dir pytest pytest-cov
+  script:
+    - echo "Running tests..."
+    # Décommentez si vous avez des tests
+    # - pytest tests/ --cov=src --cov-report=term-missing
+    - echo "Tests completed (placeholder)"
+  only:
+    - merge_requests
+    - master
+    - era5-integration
+
+# Build de l'image Docker
+build:
+  extends: .docker_template
+  stage: build
+  script:
+    - echo "Building Docker image..."
+    - docker build -t $IMAGE_NAME:$IMAGE_TAG -t $IMAGE_NAME:latest .
+    - docker push $IMAGE_NAME:$IMAGE_TAG
+    - docker push $IMAGE_NAME:latest
+  only:
+    - master
+    - era5-integration
+  tags:
+    - docker
+
+# Déploiement sur serveur (à adapter selon votre infrastructure)
+deploy_staging:
+  extends: .docker_template
+  stage: deploy
+  script:
+    - echo "Deploying to staging environment..."
+    # Exemple de déploiement via SSH (nécessite configuration SSH_PRIVATE_KEY)
+    - apk add --no-cache openssh-client
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
+    # Commandes de déploiement
+    - |
+      ssh $DEPLOY_USER@$DEPLOY_HOST << EOF
+        cd $DEPLOY_PATH
+        docker pull $IMAGE_NAME:$IMAGE_TAG
+        docker-compose down
+        docker-compose up -d
+        docker system prune -f
+      EOF
+    - echo "Deployment completed!"
+  environment:
+    name: staging
+    url: http://staging.example.com
+  only:
+    - era5-integration
+  when: manual
+  tags:
+    - docker
+
+deploy_production:
+  extends: .docker_template
+  stage: deploy
+  script:
+    - echo "Deploying to production environment..."
+    - apk add --no-cache openssh-client
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -H $PROD_DEPLOY_HOST >> ~/.ssh/known_hosts
+    # Commandes de déploiement production
+    - |
+      ssh $DEPLOY_USER@$PROD_DEPLOY_HOST << EOF
+        cd $PROD_DEPLOY_PATH
+        docker pull $IMAGE_NAME:latest
+        docker-compose down
+        docker-compose up -d
+        docker system prune -f
+      EOF
+    - echo "Production deployment completed!"
+  environment:
+    name: production
+    url: http://piezo.example.com
+  only:
+    - master
+  when: manual
+  tags:
+    - docker
+
+# Job de nettoyage des images Docker anciennes
+cleanup:
+  extends: .docker_template
+  stage: deploy
+  script:
+    - echo "Cleaning up old Docker images..."
+    - docker image prune -a -f --filter "until=168h"
+  only:
+    - schedules
+  tags:
+    - docker

@@ -112,8 +112,6 @@ class AppState:
                         'precip': True,
                         'temp': True,
                         'et': True,
-                        'temp_min': False,
-                        'temp_max': False,
                         'humidity': False,
                         'wind': False,
                         'radiation': False
@@ -429,9 +427,7 @@ def render_step_2_config():
         # Init vars
         meteo_vars = config['meteo_vars']
         vp = meteo_vars['precip']
-        vtmin = meteo_vars['temp_min']
         vt = meteo_vars['temp']
-        vtmax = meteo_vars['temp_max']
         vet = meteo_vars['et']
         vhum = meteo_vars['humidity']
         vwind = meteo_vars['wind']
@@ -440,17 +436,14 @@ def render_step_2_config():
         if inc_meteo:
             with col_m_opts:
                 with st.expander("Choisir les variables", expanded=True):
-                    c1, c2, c3, c4 = st.columns(4)
+                    c1, c2, c3 = st.columns(3)
                     with c1:
                         vp = st.checkbox("Précipitations", value=meteo_vars['precip'])
-                        vtmin = st.checkbox("Temp. Min", value=meteo_vars['temp_min'])
-                    with c2:
                         vt = st.checkbox("Température", value=meteo_vars['temp'])
-                        vtmax = st.checkbox("Temp. Max", value=meteo_vars['temp_max'])
-                    with c3:
+                    with c2:
                         vet = st.checkbox("Évapotranspiration", value=meteo_vars['et'])
                         vhum = st.checkbox("Humidité", value=meteo_vars['humidity'])
-                    with c4:
+                    with c3:
                         vwind = st.checkbox("Vent", value=meteo_vars['wind'])
                         vrad = st.checkbox("Rayonnement", value=meteo_vars['radiation'])
         
@@ -495,8 +488,8 @@ def render_step_2_config():
             # Update meteo vars
             if inc_meteo:
                 new_vars = {
-                    'precip': vp, 'temp': vt, 'et': vet, 'temp_min': vtmin,
-                    'temp_max': vtmax, 'humidity': vhum, 'wind': vwind, 'radiation': vrad
+                    'precip': vp, 'temp': vt, 'et': vet,
+                    'humidity': vhum, 'wind': vwind, 'radiation': vrad
                 }
                 for k, v in new_vars.items():
                     AppState.update_meteo_var(k, v)
@@ -534,7 +527,6 @@ def run_build_process():
     mvars = config['meteo_vars']
     mapping = {
         'precip': 'precipitation', 'temp': 'temperature', 'et': 'evapotranspiration',
-        'temp_min': 'temperature_min', 'temp_max': 'temperature_max',
         'humidity': 'humidity', 'wind': 'wind', 'radiation': 'radiation'
     }
     for k, v in mvars.items():

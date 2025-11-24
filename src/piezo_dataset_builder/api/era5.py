@@ -29,8 +29,6 @@ class ERA5Client:
         "precipitation": "total_precipitation",
         "temperature": "2m_temperature",
         "evapotranspiration": "potential_evaporation",
-        "temperature_min": "2m_temperature",  # Même variable, agrégation différente
-        "temperature_max": "2m_temperature",
         "humidity": "2m_dewpoint_temperature",  # Utilisé pour calculer l'humidité
         "wind": "10m_wind_speed",
         "radiation": "surface_solar_radiation_downwards",
@@ -289,9 +287,13 @@ class ERA5Client:
         """
         Télécharge les données ERA5 pour une période (jusqu'à 5 ans).
         """
-        # Créer fichier temporaire pour le NetCDF
-        with tempfile.NamedTemporaryFile(suffix=".nc", delete=False) as tmp:
-            tmp_path = tmp.name
+        # Créer un nom de fichier temporaire unique
+        # Note: On n'utilise pas NamedTemporaryFile car il garde le fichier ouvert sur Windows,
+        # ce qui empêche cdsapi d'écrire dedans
+        temp_dir = tempfile.gettempdir()
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".nc", dir=temp_dir)
+        os.close(tmp_fd)  # Fermer immédiatement le descripteur de fichier
+        os.remove(tmp_path)  # Supprimer le fichier vide créé par mkstemp
 
         download_path = None
         nc_path = None
@@ -354,7 +356,7 @@ class ERA5Client:
                         raise RuntimeError("No NetCDF file found in downloaded zip")
                 os.remove(download_path)
             else:
-                # Fichier déjà en NetCDF
+                # Fichier déjà en NetCDF - simplement renommer
                 os.rename(download_path, nc_path)
 
             # Charger le NetCDF avec xarray
