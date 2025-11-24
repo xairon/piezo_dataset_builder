@@ -494,47 +494,60 @@ class DatasetBuilder:
         """
         Agrège les données au niveau journalier.
         Moyenne pour valeurs numériques, première valeur pour le reste.
+
+        Important: On groupe UNIQUEMENT par (code_bss, date) pour éviter de
+        créer des groupes différents à cause de variations mineures dans les
+        coordonnées GPS ou autres attributs de station.
         """
         if 'date' not in df.columns:
             logger.warning("No 'date' column found, skipping aggregation")
             return df
 
-        # Colonnes de groupement
+        # Colonnes de groupement: SEULEMENT code_bss + date
+        # Ne PAS ajouter latitude/longitude/commune car ce sont des ATTRIBUTS de station,
+        # pas des clés de groupement. Si on les ajoute, on risque de créer des groupes
+        # séparés pour la même station à cause d'arrondis GPS différents.
         group_cols = ['code_bss', 'date']
 
-        # Ajouter colonnes non-numériques importantes (si elles existent)
-        for col in ['latitude', 'longitude', 'nom_commune', 'libelle_commune']:
-            if col in df.columns and col not in group_cols:
-                group_cols.append(col)
+        # Identifier toutes les colonnes à agréger
+        agg_dict = {}
 
-        # Colonnes numériques à moyenner
+        # Colonnes numériques → moyenne (sauf si déjà dans group_cols)
         numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-        numeric_cols = [c for c in numeric_cols if c not in group_cols]
+        for col in numeric_cols:
+            if col not in group_cols:
+                agg_dict[col] = 'mean'
 
-        if not numeric_cols:
-            # Pas de colonnes numériques à agréger, juste dédupliquer
-            logger.debug("No numeric columns to aggregate, deduplicating")
+        # Colonnes texte → première valeur
+        text_cols = df.select_dtypes(include=['object']).columns.tolist()
+        for col in text_cols:
+            if col not in group_cols:
+                agg_dict[col] = 'first'
+
+        if not agg_dict:
+            # Pas de colonnes à agréger, juste dédupliquer
+            logger.debug("No columns to aggregate, deduplicating by (code_bss, date)")
             return df.drop_duplicates(subset=group_cols)
 
-        # Agrégation
-        agg_dict = {col: 'mean' for col in numeric_cols}
-
-        # Garder première valeur pour colonnes texte
-        text_cols = df.select_dtypes(include=['object']).columns.tolist()
-        text_cols = [c for c in text_cols if c not in group_cols]
-        for col in text_cols:
-            agg_dict[col] = 'first'
-
         logger.debug(
-            f"Aggregating {len(numeric_cols)} numeric columns "
-            f"and {len(text_cols)} text columns"
+            f"Aggregating by (code_bss, date): "
+            f"{len([k for k, v in agg_dict.items() if v == 'mean'])} numeric cols (mean), "
+            f"{len([k for k, v in agg_dict.items() if v == 'first'])} text cols (first)"
         )
 
+        # Agrégation
         df_agg = df.groupby(group_cols, as_index=False).agg(agg_dict)
 
         logger.info(
             f"Daily aggregation complete: {len(df)} rows -> {len(df_agg)} rows "
             f"({len(df) - len(df_agg)} duplicates removed)"
+        )
+
+        # Log détaillé du nombre de stations uniques
+        stations_before = df['code_bss'].nunique()
+        stations_after = df_agg['code_bss'].nunique()
+        logger.info(
+            f"Stations preserved: {stations_before} before → {stations_after} after aggregation"
         )
 
         return df_agg
