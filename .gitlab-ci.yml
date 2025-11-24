@@ -56,74 +56,68 @@ build:
   tags:
     - hubeau
 
-# Déploiement sur serveur (à adapter selon votre infrastructure)
-deploy_staging:
-  extends: .docker_template
+# Déploiement automatique sur le serveur local (runner)
+deploy:
   stage: deploy
+  image: docker:24
   script:
-    - echo "Deploying to staging environment..."
-    # Exemple de déploiement via SSH (nécessite configuration SSH_PRIVATE_KEY)
-    - apk add --no-cache openssh-client
-    - mkdir -p ~/.ssh
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
-    - chmod 600 ~/.ssh/id_rsa
-    - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
-    # Commandes de déploiement
+    - echo "Deploying to server..."
+    - echo "Current images:"
+    - docker images | grep piezo-dataset-builder || true
     - |
-      ssh $DEPLOY_USER@$DEPLOY_HOST << EOF
-        cd $DEPLOY_PATH
-        docker pull $IMAGE_NAME:$IMAGE_TAG
-        docker-compose down
-        docker-compose up -d
-        docker system prune -f
-      EOF
-    - echo "Deployment completed!"
-  environment:
-    name: staging
-    url: http://staging.example.com
-  only:
-    - master
-  when: manual
-  tags:
-    - hubeau
+      # Créer le répertoire de déploiement si nécessaire
+      mkdir -p /home/gitlab-runner/piezo-app
+      cd /home/gitlab-runner/piezo-app
 
-deploy_production:
-  extends: .docker_template
-  stage: deploy
-  script:
-    - echo "Deploying to production environment..."
-    - apk add --no-cache openssh-client
-    - mkdir -p ~/.ssh
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
-    - chmod 600 ~/.ssh/id_rsa
-    - ssh-keyscan -H $PROD_DEPLOY_HOST >> ~/.ssh/known_hosts
-    # Commandes de déploiement production
-    - |
-      ssh $DEPLOY_USER@$PROD_DEPLOY_HOST << EOF
-        cd $PROD_DEPLOY_PATH
-        docker pull $IMAGE_NAME:latest
-        docker-compose down
-        docker-compose up -d
-        docker system prune -f
-      EOF
-    - echo "Production deployment completed!"
+      # Créer docker-compose.yml si absent
+      if [ ! -f docker-compose.yml ]; then
+        cat > docker-compose.yml << 'COMPOSE_EOF'
+      version: '3.8'
+      services:
+        piezo-app:
+          image: piezo-dataset-builder:latest
+          container_name: piezo-dataset-builder
+          ports:
+            - "8501:8501"
+          restart: unless-stopped
+          environment:
+            - STREAMLIT_SERVER_PORT=8501
+            - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+          volumes:
+            - ./logs:/app/logs
+      COMPOSE_EOF
+        echo "✅ docker-compose.yml created"
+      fi
+
+      # Arrêter l'ancien conteneur
+      docker-compose down || true
+
+      # Démarrer le nouveau conteneur
+      docker-compose up -d
+
+      # Vérifier le statut
+      docker-compose ps
+
+      echo "✅ Deployment completed!"
+      echo "🌐 Application accessible sur: http://31.97.179.12:8501"
   environment:
     name: production
-    url: http://piezo.example.com
+    url: http://31.97.179.12:8501
   only:
     - master
-  when: manual
+  when: on_success  # Automatique après un build réussi
   tags:
     - hubeau
 
-# Job de nettoyage des images Docker anciennes
-cleanup:
-  extends: .docker_template
-  stage: deploy
-  script:
-    - echo "Cleaning up old Docker images..."
-    - docker image prune -a -f --filter "until=168h"
-  only:
-    - schedules
-  tags:
-    - hubeau
+# Job de nettoyage des images Docker anciennes (optionnel)
+# Décommentez si vous voulez un nettoyage automatique hebdomadaire
+# cleanup:
+#   extends: .docker_template
+#   stage: deploy
+#   script:
+#     - echo "Cleaning up old Docker images..."
+#     - docker image prune -a -f --filter "until=168h"
+#   only:
+#     - schedules
+#   tags:
+#     - hubeau
