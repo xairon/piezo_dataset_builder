@@ -35,6 +35,8 @@ test:
     - merge_requests
     - master
     - era5-integration
+  tags:
+    - hubeau
 
 # Build de l'image Docker
 build:
@@ -49,7 +51,7 @@ build:
     - master
     - era5-integration
   tags:
-    - docker
+    - hubeau
 
 # Déploiement sur serveur (à adapter selon votre infrastructure)
 deploy_staging:
@@ -80,7 +82,7 @@ deploy_staging:
     - era5-integration
   when: manual
   tags:
-    - docker
+    - hubeau
 
 deploy_production:
   extends: .docker_template
@@ -109,7 +111,7 @@ deploy_production:
     - master
   when: manual
   tags:
-    - docker
+    - hubeau
 
 # Job de nettoyage des images Docker anciennes
 cleanup:
@@ -121,4 +123,4 @@ cleanup:
   only:
     - schedules
   tags:
-    - docker
+    - hubeau
