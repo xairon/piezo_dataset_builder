@@ -44,6 +44,9 @@ class DatasetBuilder:
         )
         self.meteo_client = ERA5Client(api_token=copernicus_api_token)
 
+        # For partial data recovery in case of error
+        self._partial_dataset = None
+
         logger.info(
             f"Initialized DatasetBuilder for Piezometry "
             f"(timeout={timeout}s, hubeau_rate={rate_limit_hubeau}s, "
@@ -204,17 +207,62 @@ class DatasetBuilder:
             )
             update_progress(50, f"Created grid: {len(df_base)} rows")
 
+        # Save partial dataset before attempting weather data (in case of ERA5 failure)
+        self._partial_dataset = df_base.copy()
+
         # 3. Ajouter données météo (température AIR, précipitations, etc.)
         if include_meteo and 'latitude' in df_base.columns:
             update_progress(60, "Fetching weather data (air temperature, precipitation, etc.)...")
-            df_base = self._add_meteo_data(
-                df_base,
-                date_start,
-                date_end,
-                meteo_variables or ['precipitation', 'temperature', 'evapotranspiration'],
-                progress_callback=update_progress
-            )
-            update_progress(80, "Weather data added")
+            try:
+                df_base = self._add_meteo_data(
+                    df_base,
+                    date_start,
+                    date_end,
+                    meteo_variables or ['precipitation', 'temperature', 'evapotranspiration'],
+                    progress_callback=update_progress
+                )
+                update_progress(80, "Weather data added")
+            except Exception as e:
+                # Check if the exception contains partial ERA5 data
+                partial_meteo_data = getattr(e, 'partial_data', None)
+
+                if partial_meteo_data is not None and not partial_meteo_data.empty:
+                    logger.warning(f"ERA5 failed but retrieved {len(partial_meteo_data)} partial weather records")
+
+                    # Try to merge partial weather data with base dataset
+                    try:
+                        # Renommer code_station → code_bss pour le merge
+                        if 'code_station' in partial_meteo_data.columns:
+                            partial_meteo_data = partial_meteo_data.rename(columns={'code_station': 'code_bss'})
+
+                        # Merge en évitant les doublons de latitude/longitude
+                        merge_cols = ['code_bss', 'date']
+
+                        # S'assurer que les types correspondent
+                        if 'date' in df_base.columns:
+                            df_base['date'] = pd.to_datetime(df_base['date'], errors='coerce').dt.date
+                        if 'date' in partial_meteo_data.columns:
+                            partial_meteo_data['date'] = pd.to_datetime(partial_meteo_data['date'], errors='coerce').dt.date
+
+                        df_base = df_base.merge(
+                            partial_meteo_data.drop(columns=['latitude', 'longitude'], errors='ignore'),
+                            on=merge_cols,
+                            how='left'
+                        )
+
+                        logger.info(f"Merged partial weather data: {len(df_base)} rows")
+                        self._partial_dataset = df_base.copy()
+
+                    except Exception as merge_error:
+                        logger.error(f"Failed to merge partial weather data: {merge_error}")
+                        self._partial_dataset = df_base.copy()
+
+                else:
+                    # No partial data available, save what we have
+                    logger.error(f"Failed to add weather data: {e}")
+                    self._partial_dataset = df_base.copy()
+
+                raise  # Re-raise to trigger error handler in app.py
         else:
             if include_meteo and 'latitude' not in df_base.columns:
                 logger.warning("Cannot add weather data: no GPS coordinates available")

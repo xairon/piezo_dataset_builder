@@ -560,7 +560,7 @@ def run_build_process():
             rate_limit_hubeau=config['rate_limit_hubeau'],
             copernicus_api_token=config.get('copernicus_api_token')
         )
-        
+
         df = builder.build_dataset(
             codes_bss=codes,
             date_start=pd.Timestamp(config['date_start']),
@@ -573,14 +573,74 @@ def run_build_process():
             chronique_fields=chronique_fields_list,
             progress_callback=progress_callback
         )
-        
+
         AppState.set('df_result', df)
         AppState.set('build_logs', logs)
         AppState.set_step(AppState.STEP_RESULT)
-        
+
     except Exception as e:
-        st.error(f"Une erreur est survenue : {str(e)}")
+        st.error(f"❌ Une erreur est survenue : {str(e)}")
         st.exception(e)
+
+        # Try to salvage partial data if available
+        partial_df = getattr(builder, '_partial_dataset', None)
+
+        if partial_df is not None and not partial_df.empty:
+            st.warning(f"⚠️ Le traitement a échoué, mais **{len(partial_df)} lignes de données partielles** ont été récupérées.")
+            st.info("""
+            💡 Les données partielles contiennent les informations collectées avant l'erreur :
+            - Stations piézométriques
+            - Chroniques de niveaux de nappe (si disponibles)
+            - Données météo partielles (jusqu'au chunk qui a planté)
+            """)
+
+            with st.expander("📋 Aperçu des données partielles", expanded=True):
+                st.dataframe(partial_df.head(100))
+                st.caption(f"Total: {len(partial_df)} lignes × {len(partial_df.columns)} colonnes")
+
+                if 'code_bss' in partial_df.columns:
+                    nb_stations = partial_df['code_bss'].nunique()
+                    st.caption(f"Stations: {nb_stations}")
+
+            st.markdown("---")
+            st.subheader("💾 Télécharger les données partielles")
+
+            filename = f"dataset_piezo_partial_{datetime.now().strftime('%Y%m%d_%H%M')}"
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                from piezo_dataset_builder.utils.export import to_csv
+                st.download_button(
+                    "📥 Télécharger CSV",
+                    data=to_csv(partial_df),
+                    file_name=f"{filename}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    type="primary"
+                )
+
+            with col2:
+                from piezo_dataset_builder.utils.export import to_excel
+                st.download_button(
+                    "📥 Télécharger Excel",
+                    data=to_excel(partial_df),
+                    file_name=f"{filename}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+            with col3:
+                from piezo_dataset_builder.utils.export import to_json
+                st.download_button(
+                    "📥 Télécharger JSON",
+                    data=to_json(partial_df),
+                    file_name=f"{filename}.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
+
+        st.markdown("---")
         if st.button("Retour à la configuration"):
             AppState.set_step(AppState.STEP_CONFIG)
 

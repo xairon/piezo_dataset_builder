@@ -287,10 +287,26 @@ class ERA5Client:
                     # Progress entre 60% et 80% pendant le téléchargement ERA5
                     pct = 60 + int((i - 1) / len(chunks) * 20)
                     progress_callback(pct, msg)
-                df_chunk = self._fetch_era5_chunk(bbox, chunk_start, chunk_end, era5_vars, locations)
-                if not df_chunk.empty:
-                    dfs.append(df_chunk)
-                    logger.info(f"[ERA5 Progress] Chunk {years_str} complete - {len(df_chunk)} records")
+
+                try:
+                    df_chunk = self._fetch_era5_chunk(bbox, chunk_start, chunk_end, era5_vars, locations)
+                    if not df_chunk.empty:
+                        dfs.append(df_chunk)
+                        logger.info(f"[ERA5 Progress] Chunk {years_str} complete - {len(df_chunk)} records")
+                except Exception as e:
+                    logger.error(f"Failed to download chunk {i}/{len(chunks)} ({years_str}): {e}")
+                    # Si on a déjà des données, les retourner avec une exception qui contient les données partielles
+                    if dfs:
+                        partial_df = pd.concat(dfs, ignore_index=True)
+                        logger.warning(f"Returning {len(dfs)} successfully downloaded chunks before error")
+                        # Créer une exception personnalisée qui contient les données partielles
+                        error = RuntimeError(f"ERA5 download failed at chunk {i}/{len(chunks)}: {e}")
+                        error.partial_data = partial_df
+                        raise error from e
+                    else:
+                        # Pas de données récupérées du tout, re-raise l'exception originale
+                        raise
+
             return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
         return self._fetch_era5_chunk(bbox, date_debut, date_fin, era5_vars, locations)
