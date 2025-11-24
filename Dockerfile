@@ -17,12 +17,12 @@ RUN apt-get update && apt-get install -y \
 # Copier les fichiers de configuration du projet
 COPY pyproject.toml ./
 
+# Copier le code source de l'application (nécessaire AVANT pip install -e .)
+COPY src/ ./src/
+
 # Installer les dépendances Python
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -e .
-
-# Copier le code source de l'application
-COPY src/ ./src/
 
 # Créer un répertoire pour les fichiers temporaires
 RUN mkdir -p /tmp/era5_downloads
