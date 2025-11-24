@@ -180,14 +180,24 @@ class DatasetBuilder:
             update_progress(50, f"Retrieved {len(df_chroniques)} groundwater level records")
 
             if not df_chroniques.empty:
-                # Merger avec stations
-                df_base = df_chroniques.merge(
+                # Créer grille date × station pour toutes les stations (pas seulement celles avec chroniques)
+                df_base = self._create_date_station_grid(
                     df_stations,
-                    on='code_bss',
-                    how='left',
-                    suffixes=('', '_station')
+                    date_start,
+                    date_end
                 )
-                logger.info(f"Merged chroniques with stations: {len(df_base)} rows")
+
+                # Merger les chroniques disponibles (left join pour garder toutes les dates/stations)
+                df_base = df_base.merge(
+                    df_chroniques,
+                    on=['code_bss', 'date'],
+                    how='left',
+                    suffixes=('', '_chronique')
+                )
+                logger.info(
+                    f"Merged chroniques with {len(df_stations)} stations: {len(df_base)} rows "
+                    f"({df_base['code_bss'].nunique()} unique stations)"
+                )
             else:
                 # Pas de chroniques, créer grille date x station
                 logger.warning("No chroniques found, creating date×station grid")
