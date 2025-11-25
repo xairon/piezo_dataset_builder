@@ -193,6 +193,19 @@ class DatasetBuilder:
                 # Convertir les deux en string ISO pour garantir la correspondance
                 df_base['date'] = pd.to_datetime(df_base['date']).dt.strftime('%Y-%m-%d')
                 df_chroniques['date'] = pd.to_datetime(df_chroniques['date']).dt.strftime('%Y-%m-%d')
+                
+                # NORMALISATION DES CODE_BSS (strip espaces, uniformiser)
+                df_base['code_bss'] = df_base['code_bss'].astype(str).str.strip()
+                df_chroniques['code_bss'] = df_chroniques['code_bss'].astype(str).str.strip()
+                
+                # DEBUG: Vérifier les clés avant merge
+                grid_codes = set(df_base['code_bss'].unique())
+                chrono_codes = set(df_chroniques['code_bss'].unique())
+                common_codes = grid_codes & chrono_codes
+                logger.info(f"DEBUG MERGE: Grid has {len(grid_codes)} codes, Chroniques has {len(chrono_codes)} codes, {len(common_codes)} in common")
+                if len(common_codes) == 0:
+                    logger.error(f"DEBUG: Sample grid codes: {list(grid_codes)[:3]}")
+                    logger.error(f"DEBUG: Sample chronique codes: {list(chrono_codes)[:3]}")
 
                 # Agrégation journalière des chroniques pour éviter les doublons lors du merge
                 # On fait une moyenne des niveaux si plusieurs mesures par jour
