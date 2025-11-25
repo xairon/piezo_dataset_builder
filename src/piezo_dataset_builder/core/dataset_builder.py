@@ -188,6 +188,12 @@ class DatasetBuilder:
                     requested_codes=codes_bss
                 )
 
+                # NORMALISATION DES TYPES DE DATES AVANT MERGE
+                # La grille a des datetime.date, les chroniques peuvent avoir datetime64 ou autre
+                # Convertir les deux en string ISO pour garantir la correspondance
+                df_base['date'] = pd.to_datetime(df_base['date']).dt.strftime('%Y-%m-%d')
+                df_chroniques['date'] = pd.to_datetime(df_chroniques['date']).dt.strftime('%Y-%m-%d')
+
                 # Agrégation journalière des chroniques pour éviter les doublons lors du merge
                 # On fait une moyenne des niveaux si plusieurs mesures par jour
                 # Pour les colonnes non numériques (qualité, statut), on prend la première valeur
@@ -211,9 +217,11 @@ class DatasetBuilder:
                     how='left',
                     suffixes=('', '_chronique')
                 )
+                
+                # Log pour debug: vérifier si le merge a bien fonctionné
+                non_null_count = df_base.drop(columns=['code_bss', 'date'], errors='ignore').notna().any(axis=1).sum()
                 logger.info(
-                    f"Merged chroniques with {len(df_stations)} stations: {len(df_base)} rows "
-                    f"({df_base['code_bss'].nunique()} unique stations)"
+                    f"Merged chroniques: {len(df_base)} rows, {non_null_count} rows with data"
                 )
             else:
                 # Pas de chroniques, créer grille date x station
@@ -267,11 +275,11 @@ class DatasetBuilder:
                         # Merge en évitant les doublons de latitude/longitude
                         merge_cols = ['code_bss', 'date']
 
-                        # S'assurer que les types correspondent
+                        # NORMALISATION DES TYPES DE DATES AVANT MERGE
                         if 'date' in df_base.columns:
-                            df_base['date'] = pd.to_datetime(df_base['date'], errors='coerce').dt.date
+                            df_base['date'] = pd.to_datetime(df_base['date']).dt.strftime('%Y-%m-%d')
                         if 'date' in partial_meteo_data.columns:
-                            partial_meteo_data['date'] = pd.to_datetime(partial_meteo_data['date'], errors='coerce').dt.date
+                            partial_meteo_data['date'] = pd.to_datetime(partial_meteo_data['date']).dt.strftime('%Y-%m-%d')
 
                         df_base = df_base.merge(
                             partial_meteo_data.drop(columns=['latitude', 'longitude'], errors='ignore'),
@@ -554,11 +562,12 @@ class DatasetBuilder:
         # Joindre avec données principales
         merge_cols = ['code_bss', 'date']
 
-        # S'assurer que les types correspondent
+        # NORMALISATION DES TYPES DE DATES AVANT MERGE
+        # Convertir les deux en string ISO pour garantir la correspondance
         if 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.date
+            df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
         if 'date' in df_meteo.columns:
-            df_meteo['date'] = pd.to_datetime(df_meteo['date'], errors='coerce').dt.date
+            df_meteo['date'] = pd.to_datetime(df_meteo['date']).dt.strftime('%Y-%m-%d')
 
         # Merge en évitant les doublons de latitude/longitude
         df = df.merge(
@@ -566,7 +575,11 @@ class DatasetBuilder:
             on=merge_cols,
             how='left'
         )
-
-        logger.info(f"Weather data merged: {len(df)} rows")
+        
+        # Log pour debug: vérifier si le merge a bien fonctionné
+        meteo_cols = [c for c in df_meteo.columns if c not in ['code_bss', 'date', 'latitude', 'longitude', 'code_station']]
+        if meteo_cols:
+            non_null_meteo = df[meteo_cols[0]].notna().sum()
+            logger.info(f"Weather data merged: {len(df)} rows, {non_null_meteo} rows with meteo data")
 
         return df
