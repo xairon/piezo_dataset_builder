@@ -181,11 +181,13 @@ class DatasetBuilder:
 
             if not df_chroniques.empty:
                 # Créer grille date × station pour toutes les stations (pas seulement celles avec chroniques)
+                # IMPORTANT: Ne pas passer requested_codes=codes_bss car ça inclurait les codes invalides !
+                # On veut seulement les stations trouvées dans df_stations
                 df_base = self._create_date_station_grid(
                     df_stations,
                     date_start,
-                    date_end,
-                    requested_codes=codes_bss
+                    date_end
+                    # PAS de requested_codes ici - on veut seulement les stations valides de df_stations
                 )
 
                 # NORMALISATION DES TYPES DE DATES AVANT MERGE
@@ -243,8 +245,8 @@ class DatasetBuilder:
                 df_base = self._create_date_station_grid(
                     df_stations,
                     date_start,
-                    date_end,
-                    requested_codes=codes_bss
+                    date_end
+                    # PAS de requested_codes - on veut seulement les stations valides
                 )
         else:
             # Créer grille sans chroniques
@@ -252,8 +254,8 @@ class DatasetBuilder:
             df_base = self._create_date_station_grid(
                 df_stations,
                 date_start,
-                date_end,
-                requested_codes=codes_bss
+                date_end
+                # PAS de requested_codes - on veut seulement les stations valides
             )
             update_progress(50, f"Created grid: {len(df_base)} rows")
 
