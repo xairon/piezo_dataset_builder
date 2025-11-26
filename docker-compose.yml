@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: piezo-dataset-builder
     ports:
-      - "8501:8501"
+      - "8501"  # Port dynamique - Docker alloue automatiquement un port disponible
     environment:
       # Variables d'environnement Streamlit
       - STREAMLIT_SERVER_PORT=8501

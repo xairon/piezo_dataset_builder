@@ -20,7 +20,18 @@ docker-compose up --build
 docker-compose up -d --build
 ```
 
-L'application sera accessible sur : http://localhost:8501
+**Trouver le port alloué :**
+
+Docker alloue automatiquement un port disponible. Pour le découvrir :
+
+```bash
+docker ps
+# ou
+docker compose ps
+```
+
+L'application sera accessible sur le port indiqué (ex: `0.0.0.0:32768->8501/tcp`).
+Exemple : `http://localhost:32768` ou `http://<ip-serveur>:32768`
 
 ### 2. Arrêter l'application
 
