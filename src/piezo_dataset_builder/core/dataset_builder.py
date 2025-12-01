@@ -13,6 +13,7 @@ import logging
 
 from ..api.hubeau import HubEauClient
 from ..api.era5 import ERA5Client
+from ..api.era5_local import ERA5LocalClient
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,8 @@ class DatasetBuilder:
         self,
         timeout: int = 30,
         rate_limit_hubeau: float = 0.3,
-        copernicus_api_token: str = None
+        copernicus_api_token: str = None,
+        era5_local_file: str = None
     ):
         """
         Initialise le builder pour piézométrie.
@@ -36,13 +38,23 @@ class DatasetBuilder:
         Args:
             timeout: Timeout pour les requêtes HTTP (secondes)
             rate_limit_hubeau: Rate limit pour Hub'Eau (secondes entre requêtes)
-            copernicus_api_token: Token API du compte Copernicus CDS (pour ERA5)
+            copernicus_api_token: Token API du compte Copernicus CDS (pour ERA5 API)
+            era5_local_file: Chemin vers fichier NetCDF ERA5 local (optionnel, prioritaire sur l'API)
         """
         self.hubeau_client = HubEauClient(
             timeout=timeout,
             rate_limit=rate_limit_hubeau
         )
-        self.meteo_client = ERA5Client(api_token=copernicus_api_token)
+
+        # Choisir le client météo selon la source
+        if era5_local_file:
+            logger.info(f"Using local ERA5 file: {era5_local_file}")
+            self.meteo_client = ERA5LocalClient(netcdf_path=era5_local_file)
+            weather_source = f"ERA5-Local({era5_local_file})"
+        else:
+            logger.info("Using ERA5 API (Copernicus CDS)")
+            self.meteo_client = ERA5Client(api_token=copernicus_api_token)
+            weather_source = "ERA5-API"
 
         # For partial data recovery in case of error
         self._partial_dataset = None
@@ -50,7 +62,7 @@ class DatasetBuilder:
         logger.info(
             f"Initialized DatasetBuilder for Piezometry "
             f"(timeout={timeout}s, hubeau_rate={rate_limit_hubeau}s, "
-            f"weather_source=ERA5)"
+            f"weather_source={weather_source})"
         )
 
     def build_dataset(

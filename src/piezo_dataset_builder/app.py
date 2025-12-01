@@ -98,7 +98,9 @@ class AppState:
                     'include_stations': True,
                     'include_chroniques': True,
                     'include_meteo': True,
+                    'era5_source': 'Télécharger depuis l\'API Copernicus',
                     'copernicus_api_token': '',
+                    'era5_local_file': None,
                     'station_fields': {
                         'libelle_station': True,
                         'nom_commune': True,
@@ -388,33 +390,78 @@ def render_step_2_config():
         # --- 3. MÉTÉO ---
         st.markdown("#### 🌦️ Météo (ERA5 - Copernicus)")
 
-        # Champs credentials Copernicus CDS
-        st.info("🔑 **Token API Copernicus CDS** (obligatoire pour ERA5)")
-        copernicus_api_token = st.text_input(
-            "API Token Copernicus",
-            value=config.get('copernicus_api_token', ''),
-            type="password",
-            help="Votre token API du compte Copernicus CDS (format: abcd1234-5678-90ab-cdef-1234567890ab)",
-            placeholder="abcd1234-5678-90ab-cdef-1234567890ab"
+        # Choix de la source ERA5
+        era5_source = st.radio(
+            "Source des données ERA5",
+            options=["Télécharger depuis l'API Copernicus", "Utiliser un fichier NetCDF local"],
+            help="Choisissez entre télécharger les données depuis l'API ou utiliser un fichier déjà téléchargé",
+            horizontal=True
         )
 
-        if not copernicus_api_token:
-            st.warning("⚠️ Vous devez fournir votre token API Copernicus pour utiliser ERA5. [Créer un compte gratuit](https://cds.climate.copernicus.eu/)")
+        # Variables pour stocker les paramètres
+        copernicus_api_token = ''
+        era5_local_file = None
 
-        st.caption("💡 Note : Le nouveau format Copernicus n'utilise plus d'UID, juste un token unique")
+        if era5_source == "Télécharger depuis l'API Copernicus":
+            # Champs credentials Copernicus CDS
+            st.info("🔑 **Token API Copernicus CDS** (obligatoire pour ERA5)")
+            copernicus_api_token = st.text_input(
+                "API Token Copernicus",
+                value=config.get('copernicus_api_token', ''),
+                type="password",
+                help="Votre token API du compte Copernicus CDS (format: abcd1234-5678-90ab-cdef-1234567890ab)",
+                placeholder="abcd1234-5678-90ab-cdef-1234567890ab"
+            )
 
-        with st.expander("📋 Prérequis ERA5 (IMPORTANT !)", expanded=False):
-            st.markdown("""
-            **Avant la première utilisation, vous devez :**
+            if not copernicus_api_token:
+                st.warning("⚠️ Vous devez fournir votre token API Copernicus pour utiliser ERA5. [Créer un compte gratuit](https://cds.climate.copernicus.eu/)")
 
-            1. ✅ Créer un compte sur [Copernicus CDS](https://cds.climate.copernicus.eu/)
-            2. ✅ **Accepter la licence ERA5-Land** : [👉 Cliquez ici](https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land?tab=download#manage-licences)
-            3. ✅ Copier votre token API depuis votre profil
+            st.caption("💡 Note : Le nouveau format Copernicus n'utilise plus d'UID, juste un token unique")
 
-            ⚠️ **Sans accepter la licence, vous obtiendrez une erreur 403 Forbidden.**
+            with st.expander("📋 Prérequis ERA5 (IMPORTANT !)", expanded=False):
+                st.markdown("""
+                **Avant la première utilisation, vous devez :**
 
-            La licence est gratuite et s'accepte en un clic.
-            """)
+                1. ✅ Créer un compte sur [Copernicus CDS](https://cds.climate.copernicus.eu/)
+                2. ✅ **Accepter la licence ERA5-Land** : [👉 Cliquez ici](https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land?tab=download#manage-licences)
+                3. ✅ Copier votre token API depuis votre profil
+
+                ⚠️ **Sans accepter la licence, vous obtiendrez une erreur 403 Forbidden.**
+
+                La licence est gratuite et s'accepte en un clic.
+                """)
+        else:
+            # Utilisation d'un fichier NetCDF local
+            st.info("📁 **Fichier ERA5 NetCDF local**")
+            era5_local_file = st.file_uploader(
+                "Choisir le fichier ERA5 (.nc)",
+                type=["nc"],
+                help="Déposez votre fichier NetCDF ERA5 préalablement téléchargé"
+            )
+
+            if era5_local_file:
+                st.success(f"✅ Fichier chargé : {era5_local_file.name} ({era5_local_file.size / (1024*1024):.2f} Mo)")
+            else:
+                st.warning("⚠️ Vous devez fournir un fichier NetCDF ERA5 pour cette option")
+
+            with st.expander("ℹ️ À propos du fichier ERA5 local", expanded=False):
+                st.markdown("""
+                **Avantages du fichier local :**
+                - ⚡ **Beaucoup plus rapide** (pas de téléchargement depuis l'API)
+                - 🔒 **Pas de quota** API Copernicus
+                - 📦 **Réutilisable** pour plusieurs analyses
+
+                **Prérequis :**
+                - Le fichier doit couvrir la zone géographique de vos stations (France)
+                - Le fichier doit couvrir la période temporelle demandée
+                - Format NetCDF compatible ERA5-Land ou ERA5
+
+                **Variables requises dans le fichier :**
+                - `tp` (total_precipitation) - Précipitations
+                - `t2m` (2m_temperature) - Température
+                - `pev` (potential_evaporation) - Évapotranspiration
+                - Autres variables optionnelles : `d2m`, `si10`, `ssrd`
+                """)
 
         col_m_check, col_m_opts = st.columns([1, 3])
 
@@ -463,9 +510,13 @@ def render_step_2_config():
                 return
 
             # Validation credentials si météo incluse
-            if inc_meteo and not copernicus_api_token:
-                st.error("❌ Vous devez fournir votre token API Copernicus pour utiliser les données météo ERA5.")
-                return
+            if inc_meteo:
+                if era5_source == "Télécharger depuis l'API Copernicus" and not copernicus_api_token:
+                    st.error("❌ Vous devez fournir votre token API Copernicus pour utiliser les données météo ERA5.")
+                    return
+                elif era5_source == "Utiliser un fichier NetCDF local" and not era5_local_file:
+                    st.error("❌ Vous devez fournir un fichier NetCDF ERA5 pour utiliser les données météo locales.")
+                    return
 
             # Mise à jour du state
             AppState.update_config('date_start', d_start)
@@ -473,7 +524,9 @@ def render_step_2_config():
             AppState.update_config('include_stations', inc_stations)
             AppState.update_config('include_chroniques', inc_chroniques)
             AppState.update_config('include_meteo', inc_meteo)
+            AppState.update_config('era5_source', era5_source)
             AppState.update_config('copernicus_api_token', copernicus_api_token)
+            AppState.update_config('era5_local_file', era5_local_file)
             AppState.update_config('timeout', timeout)
             AppState.update_config('rate_limit_hubeau', rl_h)
             
@@ -553,10 +606,25 @@ def run_build_process():
         log_area.code("\n".join(logs[-20:]), language="log")
         
     try:
+        # Gestion du fichier ERA5 local si utilisé
+        era5_local_path = None
+        if config.get('era5_source') == "Utiliser un fichier NetCDF local" and config.get('era5_local_file'):
+            import tempfile
+            import os
+            # Sauvegarder le fichier uploadé dans un fichier temporaire
+            era5_uploaded_file = config['era5_local_file']
+            temp_fd, era5_local_path = tempfile.mkstemp(suffix=".nc")
+            try:
+                os.write(temp_fd, era5_uploaded_file.read())
+            finally:
+                os.close(temp_fd)
+            logger.info(f"Saved uploaded ERA5 file to temporary path: {era5_local_path}")
+
         builder = DatasetBuilder(
             timeout=config['timeout'],
             rate_limit_hubeau=config['rate_limit_hubeau'],
-            copernicus_api_token=config.get('copernicus_api_token')
+            copernicus_api_token=config.get('copernicus_api_token'),
+            era5_local_file=era5_local_path
         )
 
         df = builder.build_dataset(
@@ -571,6 +639,11 @@ def run_build_process():
             chronique_fields=chronique_fields_list,
             progress_callback=progress_callback
         )
+
+        # Nettoyer le fichier temporaire
+        if era5_local_path and os.path.exists(era5_local_path):
+            os.remove(era5_local_path)
+            logger.info(f"Cleaned up temporary ERA5 file: {era5_local_path}")
 
         AppState.set('df_result', df)
         AppState.set('build_logs', logs)
