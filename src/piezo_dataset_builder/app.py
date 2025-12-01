@@ -313,17 +313,105 @@ def render_step_1_upload():
 
 def render_step_2_config():
     st.header("2️⃣ Configuration du dataset")
-    
+
     codes = AppState.get('codes_bss')
     st.markdown(f"**Stations sélectionnées :** {len(codes)}")
-    
+
+    # Section AVANT le formulaire pour gérer l'upload ERA5 et la détection des dates
+    config = AppState.get('config')
+
+    # Pré-affichage du choix de source ERA5 (en dehors du form pour permettre la réactivité)
+    st.markdown("---")
+    st.subheader("🌦️ Source des données ERA5")
+
+    era5_source_preview = st.radio(
+        "Choisissez votre source météo",
+        options=["Télécharger depuis l'API Copernicus", "Utiliser un fichier NetCDF local"],
+        help="Si vous avez un fichier ERA5, il sera utilisé pour détecter automatiquement la période de données",
+        horizontal=True,
+        key="era5_source_selector"
+    )
+
+    # Si fichier local, permettre l'upload en dehors du form
+    era5_file_preview = None
+    if era5_source_preview == "Utiliser un fichier NetCDF local":
+        st.info("📁 **Chargez votre fichier ERA5 pour détecter automatiquement les dates**")
+        era5_file_preview = st.file_uploader(
+            "Fichier ERA5 NetCDF (.nc)",
+            type=["nc"],
+            help="Les dates de début/fin seront automatiquement détectées depuis ce fichier",
+            key="era5_file_preview_uploader"
+        )
+
+        if era5_file_preview:
+            # Lire les métadonnées du NetCDF pour extraire les dates
+            try:
+                import xarray as xr
+                import tempfile
+                import os
+
+                # Sauvegarder temporairement pour lire avec xarray
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".nc") as tmp:
+                    tmp.write(era5_file_preview.getvalue())
+                    tmp_path = tmp.name
+
+                try:
+                    with xr.open_dataset(tmp_path, engine="netcdf4") as ds:
+                        # Détecter la dimension temporelle
+                        time_dim = "valid_time" if "valid_time" in ds.dims else "time"
+
+                        # Extraire dates min/max
+                        time_values = ds[time_dim].values
+                        date_min = pd.to_datetime(time_values[0]).date()
+                        date_max = pd.to_datetime(time_values[-1]).date()
+
+                        # Détecter zone géographique
+                        lat_dim = "latitude" if "latitude" in ds.dims else "lat"
+                        lon_dim = "longitude" if "longitude" in ds.dims else "lon"
+                        lat_min = float(ds[lat_dim].values.min())
+                        lat_max = float(ds[lat_dim].values.max())
+                        lon_min = float(ds[lon_dim].values.min())
+                        lon_max = float(ds[lon_dim].values.max())
+
+                        # Afficher les infos et mettre à jour le state
+                        st.success(f"✅ Fichier chargé : {era5_file_preview.name} ({era5_file_preview.size / (1024*1024):.2f} Mo)")
+
+                        col_info1, col_info2 = st.columns(2)
+                        with col_info1:
+                            st.metric("📅 Période détectée", f"{date_min} → {date_max}")
+                            st.caption(f"{(date_max - date_min).days} jours de données")
+                        with col_info2:
+                            st.metric("🌍 Zone géographique", f"Lat: {lat_min:.1f}°→{lat_max:.1f}°")
+                            st.caption(f"Lon: {lon_min:.1f}°→{lon_max:.1f}°")
+
+                        # Mettre à jour les dates dans le state
+                        AppState.update_config('date_start', date_min)
+                        AppState.update_config('date_end', date_max)
+
+                        st.info("💡 Les dates ont été automatiquement ajustées pour correspondre à votre fichier ERA5")
+
+                finally:
+                    os.remove(tmp_path)
+
+            except Exception as e:
+                st.warning(f"⚠️ Impossible de lire les métadonnées du fichier : {e}")
+                st.caption("Vous pouvez continuer en saisissant manuellement les dates ci-dessous")
+
+    st.markdown("---")
+
+    # Maintenant le formulaire avec les dates (potentiellement mises à jour)
     with st.form("config_form"):
         # --- PÉRIODE ---
         st.subheader("📅 Période temporelle")
+
+        if era5_source_preview == "Utiliser un fichier NetCDF local" and era5_file_preview:
+            st.caption("🔄 Dates auto-détectées depuis le fichier ERA5. Vous pouvez les ajuster si nécessaire.")
+
         col_date1, col_date2 = st.columns(2)
-        
+
+        # Récupérer les dates (possiblement mises à jour par la lecture du NetCDF)
         config = AppState.get('config')
-        
+
         with col_date1:
             d_start = st.date_input(
                 "Date de début",
@@ -388,85 +476,26 @@ def render_step_2_config():
         st.markdown("") # Spacer
 
         # --- 3. MÉTÉO ---
-        st.markdown("#### 🌦️ Météo (ERA5 - Copernicus)")
-
-        # Choix de la source ERA5
-        era5_source = st.radio(
-            "Source des données ERA5",
-            options=["Télécharger depuis l'API Copernicus", "Utiliser un fichier NetCDF local"],
-            help="Choisissez entre télécharger les données depuis l'API ou utiliser un fichier déjà téléchargé",
-            horizontal=True
-        )
-
-        # Variables pour stocker les paramètres
-        copernicus_api_token = ''
-        era5_local_file = None
-
-        if era5_source == "Télécharger depuis l'API Copernicus":
-            # Champs credentials Copernicus CDS
-            st.info("🔑 **Token API Copernicus CDS** (obligatoire pour ERA5)")
-            copernicus_api_token = st.text_input(
-                "API Token Copernicus",
-                value=config.get('copernicus_api_token', ''),
-                type="password",
-                help="Votre token API du compte Copernicus CDS (format: abcd1234-5678-90ab-cdef-1234567890ab)",
-                placeholder="abcd1234-5678-90ab-cdef-1234567890ab"
-            )
-
-            if not copernicus_api_token:
-                st.warning("⚠️ Vous devez fournir votre token API Copernicus pour utiliser ERA5. [Créer un compte gratuit](https://cds.climate.copernicus.eu/)")
-
-            st.caption("💡 Note : Le nouveau format Copernicus n'utilise plus d'UID, juste un token unique")
-
-            with st.expander("📋 Prérequis ERA5 (IMPORTANT !)", expanded=False):
-                st.markdown("""
-                **Avant la première utilisation, vous devez :**
-
-                1. ✅ Créer un compte sur [Copernicus CDS](https://cds.climate.copernicus.eu/)
-                2. ✅ **Accepter la licence ERA5-Land** : [👉 Cliquez ici](https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land?tab=download#manage-licences)
-                3. ✅ Copier votre token API depuis votre profil
-
-                ⚠️ **Sans accepter la licence, vous obtiendrez une erreur 403 Forbidden.**
-
-                La licence est gratuite et s'accepte en un clic.
-                """)
-        else:
-            # Utilisation d'un fichier NetCDF local
-            st.info("📁 **Fichier ERA5 NetCDF local**")
-            era5_local_file = st.file_uploader(
-                "Choisir le fichier ERA5 (.nc)",
-                type=["nc"],
-                help="Déposez votre fichier NetCDF ERA5 préalablement téléchargé"
-            )
-
-            if era5_local_file:
-                st.success(f"✅ Fichier chargé : {era5_local_file.name} ({era5_local_file.size / (1024*1024):.2f} Mo)")
-            else:
-                st.warning("⚠️ Vous devez fournir un fichier NetCDF ERA5 pour cette option")
-
-            with st.expander("ℹ️ À propos du fichier ERA5 local", expanded=False):
-                st.markdown("""
-                **Avantages du fichier local :**
-                - ⚡ **Beaucoup plus rapide** (pas de téléchargement depuis l'API)
-                - 🔒 **Pas de quota** API Copernicus
-                - 📦 **Réutilisable** pour plusieurs analyses
-
-                **Prérequis :**
-                - Le fichier doit couvrir la zone géographique de vos stations (France)
-                - Le fichier doit couvrir la période temporelle demandée
-                - Format NetCDF compatible ERA5-Land ou ERA5
-
-                **Variables requises dans le fichier :**
-                - `tp` (total_precipitation) - Précipitations
-                - `t2m` (2m_temperature) - Température
-                - `pev` (potential_evaporation) - Évapotranspiration
-                - Autres variables optionnelles : `d2m`, `si10`, `ssrd`
-                """)
+        # La configuration ERA5 (source + fichier/token) est maintenant AVANT le formulaire
+        # Ici on gère juste l'activation et les variables
+        st.markdown("#### 🌦️ Météo (ERA5 - Options)")
 
         col_m_check, col_m_opts = st.columns([1, 3])
 
         with col_m_check:
             inc_meteo = st.checkbox("Inclure Météo", value=config['include_meteo'])
+
+        # Gérer le token API si mode API (dans le form pour pouvoir valider)
+        copernicus_api_token = ''
+        if era5_source_preview == "Télécharger depuis l'API Copernicus":
+            st.info("🔑 **Token API Copernicus CDS** (obligatoire pour ERA5)")
+            copernicus_api_token = st.text_input(
+                "API Token Copernicus",
+                value=config.get('copernicus_api_token', ''),
+                type="password",
+                help="Votre token API du compte Copernicus CDS",
+                placeholder="abcd1234-5678-90ab-cdef-1234567890ab"
+            )
 
         # Init vars
         meteo_vars = config['meteo_vars']
@@ -511,10 +540,10 @@ def render_step_2_config():
 
             # Validation credentials si météo incluse
             if inc_meteo:
-                if era5_source == "Télécharger depuis l'API Copernicus" and not copernicus_api_token:
+                if era5_source_preview == "Télécharger depuis l'API Copernicus" and not copernicus_api_token:
                     st.error("❌ Vous devez fournir votre token API Copernicus pour utiliser les données météo ERA5.")
                     return
-                elif era5_source == "Utiliser un fichier NetCDF local" and not era5_local_file:
+                elif era5_source_preview == "Utiliser un fichier NetCDF local" and not era5_file_preview:
                     st.error("❌ Vous devez fournir un fichier NetCDF ERA5 pour utiliser les données météo locales.")
                     return
 
@@ -524,9 +553,9 @@ def render_step_2_config():
             AppState.update_config('include_stations', inc_stations)
             AppState.update_config('include_chroniques', inc_chroniques)
             AppState.update_config('include_meteo', inc_meteo)
-            AppState.update_config('era5_source', era5_source)
+            AppState.update_config('era5_source', era5_source_preview)
             AppState.update_config('copernicus_api_token', copernicus_api_token)
-            AppState.update_config('era5_local_file', era5_local_file)
+            AppState.update_config('era5_local_file', era5_file_preview)
             AppState.update_config('timeout', timeout)
             AppState.update_config('rate_limit_hubeau', rl_h)
             
