@@ -1,114 +1,114 @@
-# 🐳 Guide Docker - Piezo Dataset Builder
+# 🐳 Docker Guide - Piezo Dataset Builder
 
-Ce guide explique comment utiliser Docker pour exécuter et déployer l'application Piezo Dataset Builder.
+This guide explains how to use Docker to run and deploy the Piezo Dataset Builder application.
 
-## 📋 Prérequis
+## 📋 Prerequisites
 
 - Docker >= 20.10
 - Docker Compose >= 2.0
-- (Optionnel) Accès au GitLab Container Registry
+- (Optional) Access to GitLab Container Registry
 
-## 🚀 Démarrage rapide
+## 🚀 Quick Start
 
-### 1. Lancer l'application avec Docker Compose
+### 1. Launch the application with Docker Compose
 
 ```bash
-# Construire et démarrer l'application
+# Build and start the application
 docker-compose up --build
 
-# Ou en mode détaché (arrière-plan)
+# Or in detached mode (background)
 docker-compose up -d --build
 ```
 
-**Trouver le port alloué :**
+**Find the allocated port:**
 
-Docker alloue automatiquement un port disponible. Pour le découvrir :
+Docker automatically allocates an available port. To discover it:
 
 ```bash
 docker ps
-# ou
+# or
 docker compose ps
 ```
 
-L'application sera accessible sur le port indiqué (ex: `0.0.0.0:32768->8501/tcp`).
-Exemple : `http://localhost:32768` ou `http://<ip-serveur>:32768`
+The application will be accessible on the indicated port (e.g., `0.0.0.0:32768->8501/tcp`).
+Example: `http://localhost:32768` or `http://<server-ip>:32768`
 
-### 2. Arrêter l'application
+### 2. Stop the application
 
 ```bash
-# Arrêter les conteneurs
+# Stop containers
 docker-compose down
 
-# Arrêter et supprimer les volumes
+# Stop and remove volumes
 docker-compose down -v
 ```
 
 ## 🔧 Configuration
 
-### Variables d'environnement
+### Environment Variables
 
-Vous pouvez configurer l'application via des variables d'environnement dans le fichier `docker-compose.yml` :
+You can configure the application via environment variables in the `docker-compose.yml` file:
 
 ```yaml
 environment:
-  - COPERNICUS_API_TOKEN=your-token-here  # Token API Copernicus (optionnel)
+  - COPERNICUS_API_TOKEN=your-token-here  # Copernicus API token (optional)
 ```
 
-Ou créer un fichier `.env` à la racine du projet :
+Or create a `.env` file at the project root:
 
 ```env
 COPERNICUS_API_TOKEN=your-token-here
 STREAMLIT_SERVER_PORT=8501
 ```
 
-### Volumes persistants
+### Persistent Volumes
 
-Les données temporaires ERA5 sont stockées dans un volume Docker nommé `era5-cache` pour éviter de retélécharger les mêmes données.
+ERA5 temporary data is stored in a Docker volume named `era5-cache` to avoid re-downloading the same data.
 
-Pour supprimer ce cache :
+To delete this cache:
 
 ```bash
 docker volume rm piezo-dataset-builder_era5-cache
 ```
 
-## 🏗️ Build manuel de l'image Docker
+## 🏗️ Manual Docker Image Build
 
 ```bash
-# Construire l'image
+# Build the image
 docker build -t piezo-dataset-builder:latest .
 
-# Lancer le conteneur
+# Run the container
 docker run -p 8501:8501 piezo-dataset-builder:latest
 ```
 
-## 🔄 CI/CD avec GitLab
+## 🔄 CI/CD with GitLab
 
-### Configuration GitLab
+### GitLab Configuration
 
-Le fichier `.gitlab-ci.yml` configure un pipeline CI/CD complet avec :
+The `.gitlab-ci.yml` file configures a complete CI/CD pipeline with:
 
-1. **Tests** : Exécution des tests unitaires (à activer)
-2. **Build** : Construction de l'image Docker et push vers le registry
-3. **Deploy** : Déploiement automatique sur staging/production
+1. **Tests**: Unit test execution (to be enabled)
+2. **Build**: Docker image construction and push to registry
+3. **Deploy**: Automatic deployment to staging/production
 
-### Variables GitLab à configurer
+### GitLab Variables to Configure
 
-Allez dans **Settings > CI/CD > Variables** et ajoutez :
+Go to **Settings > CI/CD > Variables** and add:
 
-| Variable | Description | Exemple |
+| Variable | Description | Example |
 |----------|-------------|---------|
-| `SSH_PRIVATE_KEY` | Clé SSH pour le déploiement | `-----BEGIN PRIVATE KEY-----...` |
-| `DEPLOY_HOST` | Hôte du serveur de staging | `staging.example.com` |
-| `DEPLOY_USER` | Utilisateur SSH | `deploy` |
-| `DEPLOY_PATH` | Chemin d'installation sur le serveur | `/opt/piezo-dataset-builder` |
-| `PROD_DEPLOY_HOST` | Hôte du serveur de production | `piezo.example.com` |
-| `PROD_DEPLOY_PATH` | Chemin d'installation en production | `/opt/piezo-dataset-builder` |
+| `SSH_PRIVATE_KEY` | SSH key for deployment | `-----BEGIN PRIVATE KEY-----...` |
+| `DEPLOY_HOST` | Staging server host | `staging.example.com` |
+| `DEPLOY_USER` | SSH user | `deploy` |
+| `DEPLOY_PATH` | Server installation path | `/opt/piezo-dataset-builder` |
+| `PROD_DEPLOY_HOST` | Production server host | `piezo.example.com` |
+| `PROD_DEPLOY_PATH` | Production installation path | `/opt/piezo-dataset-builder` |
 
-### Déploiement sur un serveur
+### Server Deployment
 
-#### Préparation du serveur
+#### Server Preparation
 
-1. Installer Docker et Docker Compose :
+1. Install Docker and Docker Compose:
 ```bash
 # Ubuntu/Debian
 curl -fsSL https://get.docker.com -o get-docker.sh
@@ -117,25 +117,25 @@ sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-
 sudo chmod +x /usr/local/bin/docker-compose
 ```
 
-2. Créer le répertoire de déploiement :
+2. Create the deployment directory:
 ```bash
 sudo mkdir -p /opt/piezo-dataset-builder
 sudo chown $USER:$USER /opt/piezo-dataset-builder
 ```
 
-3. Copier le fichier `docker-compose.yml` sur le serveur :
+3. Copy the `docker-compose.yml` file to the server:
 ```bash
 scp docker-compose.yml user@server:/opt/piezo-dataset-builder/
 ```
 
-4. Se connecter au GitLab Container Registry :
+4. Log in to GitLab Container Registry:
 ```bash
 docker login registry.gitlab.com
 ```
 
-#### Déploiement manuel
+#### Manual Deployment
 
-Sur le serveur :
+On the server:
 
 ```bash
 cd /opt/piezo-dataset-builder
@@ -143,7 +143,7 @@ docker-compose pull
 docker-compose up -d
 ```
 
-#### Mise à jour de l'application
+#### Application Update
 
 ```bash
 cd /opt/piezo-dataset-builder
@@ -152,16 +152,16 @@ docker-compose down
 docker-compose up -d
 ```
 
-## 🔒 Sécurité
+## 🔒 Security
 
 ### Production
 
-Pour la production, il est recommandé de :
+For production, it is recommended to:
 
-1. **Utiliser un reverse proxy (Nginx/Traefik)** avec HTTPS :
+1. **Use a reverse proxy (Nginx/Traefik)** with HTTPS:
 
 ```yaml
-# Exemple avec Traefik
+# Example with Traefik
 labels:
   - "traefik.enable=true"
   - "traefik.http.routers.piezo.rule=Host(`piezo.example.com`)"
@@ -169,9 +169,9 @@ labels:
   - "traefik.http.routers.piezo.tls.certresolver=letsencrypt"
 ```
 
-2. **Configurer l'authentification** (si nécessaire)
+2. **Configure authentication** (if necessary)
 
-3. **Limiter l'accès réseau** :
+3. **Limit network access**:
 
 ```yaml
 networks:
@@ -179,73 +179,73 @@ networks:
     internal: true
 ```
 
-## 📊 Monitoring et Logs
+## 📊 Monitoring and Logs
 
-### Voir les logs
+### View Logs
 
 ```bash
-# Tous les logs
+# All logs
 docker-compose logs -f
 
-# Logs d'un service spécifique
+# Logs for a specific service
 docker-compose logs -f piezo-dataset-builder
 ```
 
-### Health check
+### Health Check
 
-L'application inclut un health check automatique. Vérifier l'état :
+The application includes an automatic health check. Check the status:
 
 ```bash
 docker ps
 ```
 
-Le statut devrait afficher `healthy` après quelques secondes.
+The status should show `healthy` after a few seconds.
 
-## 🐛 Dépannage
+## 🐛 Troubleshooting
 
-### Le conteneur ne démarre pas
+### Container doesn't start
 
 ```bash
-# Vérifier les logs
+# Check logs
 docker-compose logs
 
-# Vérifier l'état du conteneur
+# Check container status
 docker-compose ps
 ```
 
-### Problèmes de permissions
+### Permission issues
 
 ```bash
-# Reconstruire l'image
+# Rebuild the image
 docker-compose build --no-cache
 docker-compose up -d
 ```
 
-### Nettoyer Docker
+### Clean Docker
 
 ```bash
-# Supprimer tous les conteneurs arrêtés
+# Remove all stopped containers
 docker container prune
 
-# Supprimer toutes les images non utilisées
+# Remove all unused images
 docker image prune -a
 
-# Nettoyage complet (attention : supprime tout !)
+# Full cleanup (warning: deletes everything!)
 docker system prune -a --volumes
 ```
 
-## 📦 Taille de l'image
+## 📦 Image Size
 
-L'image Docker fait environ **800-900 MB** en raison des dépendances scientifiques (netCDF4, xarray, etc.).
+The Docker image is approximately **800-900 MB** due to scientific dependencies (netCDF4, xarray, etc.).
 
-Pour réduire la taille :
-- Les layers sont mis en cache pour accélérer les builds suivants
-- Le `.dockerignore` exclut les fichiers inutiles
-- L'image de base `python:3.12-slim` est déjà optimisée
+To reduce size:
+- Layers are cached to speed up subsequent builds
+- `.dockerignore` excludes unnecessary files
+- Base image `python:3.12-slim` is already optimized
 
-## 🔗 Liens utiles
+## 🔗 Useful Links
 
-- [Documentation Docker](https://docs.docker.com/)
-- [Documentation Docker Compose](https://docs.docker.com/compose/)
+- [Docker Documentation](https://docs.docker.com/)
+- [Docker Compose Documentation](https://docs.docker.com/compose/)
 - [GitLab CI/CD](https://docs.gitlab.com/ee/ci/)
-- [Streamlit en production](https://docs.streamlit.io/knowledge-base/deploy/deploy-streamlit-docker)
+- [Streamlit in Production](https://docs.streamlit.io/knowledge-base/deploy/deploy-streamlit-docker)

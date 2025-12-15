@@ -1,43 +1,43 @@
 # Piezo Dataset Builder
 
-Application Streamlit pour construire des datasets complets à partir de codes de stations piézométriques (BSS).
+Streamlit application to build complete datasets from piezometer station codes (BSS).
 
 ## 🎯 Concept
 
-**Input** : Un simple CSV avec des codes BSS (stations piézométriques)
-**Output** : Un dataset complet avec attributs stations, niveaux de nappe et données météorologiques
+**Input**: A simple CSV with BSS codes (piezometer stations)
+**Output**: A complete dataset with station attributes, groundwater levels, and meteorological data
 
-L'outil interroge automatiquement :
-- **Hub'Eau API Piézométrie** : Attributs stations + chroniques de niveaux de nappe phréatique
-- **ERA5 (Copernicus)** : Données météorologiques historiques depuis 1940 (température, précipitations, évapotranspiration, etc.)
+The tool automatically queries:
+- **Hub'Eau Piezometry API**: Station attributes + groundwater level time series
+- **ERA5 (Copernicus)**: Historical meteorological data since 1940 (temperature, precipitation, evapotranspiration, etc.)
 
-### 🌟 Fonctionnalités principales
+### 🌟 Key Features
 
-- ✅ **Validation automatique** des codes BSS avant construction
-- ✅ **Extraction des coordonnées GPS** depuis l'API Hub'Eau (geometry/x/y → latitude/longitude)
-- ✅ **Données piézométriques complètes** : niveau nappe NGF, profondeur nappe
-- ✅ **Enrichissement météorologique** automatique basé sur les coordonnées GPS
-- ✅ **Agrégation journalière** pour éviter les doublons
-- ✅ **Interface intuitive** avec sélection fine des champs à exporter
-- ✅ **Export multi-format** : CSV, Excel, JSON
-- ✅ **Rate limiting et retry logic** pour respecter les limites API
+- ✅ **Automatic validation** of BSS codes before construction
+- ✅ **GPS coordinates extraction** from Hub'Eau API (geometry/x/y → latitude/longitude)
+- ✅ **Complete piezometric data**: groundwater level NGF, water table depth
+- ✅ **Automatic meteorological enrichment** based on GPS coordinates
+- ✅ **Daily aggregation** to avoid duplicates
+- ✅ **Intuitive interface** with fine selection of fields to export
+- ✅ **Multi-format export**: CSV, Excel, JSON
+- ✅ **Rate limiting and retry logic** to respect API limits
 
-## 📋 Prérequis
+## 📋 Prerequisites
 
 - Python 3.9+
-- Connexion internet (pour les APIs)
+- Internet connection (for APIs)
 
 ## 🚀 Installation
 
-### Option 1 : Docker (Recommandé) 🐳
+### Option 1: Docker (Recommended) 🐳
 
-**Avantages :** Pas de configuration Python, fonctionne sur tous les OS, prêt pour le déploiement
+**Advantages:** No Python configuration, works on all OS, ready for deployment
 
 ```bash
-# Démarrage rapide
+# Quick start
 docker-compose up -d
 
-# Ou utilisez le script de démarrage
+# Or use the startup script
 # Windows:
 start-docker.bat
 
@@ -45,53 +45,53 @@ start-docker.bat
 ./start-docker.sh
 ```
 
-L'application sera accessible sur http://localhost:8501
+The application will be accessible at http://localhost:8501
 
-📖 **Documentation complète :** Voir [DOCKER.md](DOCKER.md) pour plus de détails (CI/CD, déploiement, etc.)
+📖 **Complete documentation:** See [DOCKER.md](DOCKER.md) for more details (CI/CD, deployment, etc.)
 
-### Option 2 : Installation Python classique
+### Option 2: Classic Python Installation
 
 ```bash
-# Cloner le repository
+# Clone the repository
 git clone https://scm.univ-tours.fr/ringuet/piezo_dataset_builder.git
 cd piezo-dataset-builder
 
-# Créer environnement virtuel
+# Create virtual environment
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
-# ou
+# or
 venv\Scripts\activate     # Windows
 
-# Installer le package
+# Install the package
 pip install -e .
 ```
 
-## 💻 Utilisation
+## 💻 Usage
 
-### Avec Docker
+### With Docker
 
 ```bash
-# Démarrer l'application
+# Start the application
 docker-compose up -d
 
-# Voir les logs
+# View logs
 docker-compose logs -f
 
-# Arrêter l'application
+# Stop the application
 docker-compose down
 ```
 
-### Sans Docker
+### Without Docker
 
 ```bash
 streamlit run src/piezo_dataset_builder/app.py
 ```
 
-L'application s'ouvre dans votre navigateur (http://localhost:8501)
+The application opens in your browser (http://localhost:8501)
 
-### 2. Préparer votre fichier CSV
+### 2. Prepare your CSV file
 
-Créez un CSV avec une colonne contenant les codes BSS (stations piézométriques) :
+Create a CSV with a column containing BSS codes (piezometer stations):
 
 ```csv
 code_bss
@@ -100,134 +100,133 @@ BSS000AUZM
 BSS000BDNZ
 ```
 
-Le nom de la colonne n'importe pas, l'outil détectera automatiquement les codes BSS.
+The column name doesn't matter, the tool will automatically detect BSS codes.
 
-### 3. Workflow dans l'application
+### 3. Workflow in the application
 
-1. **Upload** : Chargez votre CSV contenant les codes BSS
-   - Validation automatique des codes avec échantillonnage
-   - Détection automatique de la colonne contenant les codes BSS
-2. **Période** : Sélectionnez les dates début/fin pour les données chroniques
-3. **Configuration des données** :
-   - **Stations** : Libellé, commune, département
-   - **Chroniques** : Niveau NGF (altitude nappe), profondeur nappe
-   - **Météo** : Précipitations, température, évapotranspiration, humidité, vent, rayonnement
-4. **Options avancées** : Timeout, rate limits, agrégation journalière
-5. **Construire** : Lancez la construction du dataset
-   - Barre de progression en temps réel
-   - Logs détaillés des opérations
-6. **Export** : Téléchargez en CSV, Excel ou JSON
+1. **Upload**: Load your CSV containing BSS codes
+   - Automatic code validation with sampling
+   - Automatic detection of the column containing BSS codes
+2. **Period**: Select start/end dates for time series data
+3. **Data configuration**:
+   - **Stations**: Label, municipality, department
+   - **Time series**: NGF level (water table altitude), water table depth
+   - **Weather**: Precipitation, temperature, evapotranspiration, humidity, wind, radiation
+4. **Advanced options**: Timeout, rate limits, daily aggregation
+5. **Build**: Launch dataset construction
+   - Real-time progress bar
+   - Detailed operation logs
+6. **Export**: Download in CSV, Excel or JSON
 
-## 📊 Exemple de dataset généré
+## 📊 Generated Dataset Example
 
 | code_bss | date | nom_commune | niveau_nappe_ngf | profondeur_nappe | precipitation | temperature | evapotranspiration | nom_departement |
-|----------|------|-------------|------------------|------------------|---------------|-------------|--------------------|-----------------|
+|----------|------|-------------|------------------|------------------|---------------|-------------|--------------------|-----------------| 
 | 07548X0009/F | 2025-11-13 | Saint-Estèphe | 21.86 | -15.88 | 0.0 | 17.1 | 1.77 | Gironde |
 | 07548X0009/F | 2025-11-14 | Saint-Estèphe | 21.94 | -15.96 | 0.2 | 17.2 | 1.91 | Gironde |
 | 07548X0009/F | 2025-11-15 | Saint-Estèphe | 21.94 | -15.96 | 8.3 | 14.5 | 1.41 | Gironde |
 | ... | ... | ... | ... | ... | ... | ... | ... | ... |
 
-**Notes importantes :**
-- `niveau_nappe_ngf` : Altitude de la nappe en mètres NGF (Nivellement Général de la France)
-- `profondeur_nappe` : Profondeur de la nappe par rapport au sol (valeurs négatives = nappe en dessous du sol)
-- `precipitation` : Précipitations journalières en mm
-- `temperature` : Température moyenne journalière en °C
-- `evapotranspiration` : Évapotranspiration de référence en mm
+**Important notes:**
+- `niveau_nappe_ngf`: Water table altitude in meters NGF (French General Leveling)
+- `profondeur_nappe`: Water table depth relative to ground (negative values = water table below ground)
+- `precipitation`: Daily precipitation in mm
+- `temperature`: Daily average temperature in °C
+- `evapotranspiration`: Reference evapotranspiration in mm
 
 ## 🔧 Configuration
 
-### APIs utilisées
+### APIs Used
 
-- **Hub'Eau API Piézométrie** : https://hubeau.eaufrance.fr/page/api-piezometrie
-  - Attributs des stations piézométriques
-  - Chroniques de niveaux de nappe phréatique
-  - Données France uniquement
+- **Hub'Eau Piezometry API**: https://hubeau.eaufrance.fr/page/api-piezometrie
+  - Piezometer station attributes
+  - Groundwater level time series
+  - France only data
 
-- **ERA5-Land (Copernicus CDS)** : https://cds.climate.copernicus.eu/
-  - Réanalyse atmosphérique de l'ECMWF
-  - Données météo historiques depuis 1940
-  - Résolution : ~9 km
-  - Variables : température, précipitations, évapotranspiration, humidité, vent, rayonnement
-  - Données mondiales
-  - ⚠️ **Compte gratuit requis** : [Créer un compte](https://cds.climate.copernicus.eu/)
-  - ⚠️ **Licence ERA5-Land à accepter** : [Accepter la licence](https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land?tab=download#manage-licences)
+- **ERA5-Land (Copernicus CDS)**: https://cds.climate.copernicus.eu/
+  - ECMWF atmospheric reanalysis
+  - Historical weather data since 1940
+  - Resolution: ~9 km
+  - Variables: temperature, precipitation, evapotranspiration, humidity, wind, radiation
+  - Worldwide data
+  - ⚠️ **Free account required**: [Create an account](https://cds.climate.copernicus.eu/)
+  - ⚠️ **ERA5-Land license to accept**: [Accept the license](https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land?tab=download#manage-licences)
 
-### Limitations et bonnes pratiques
+### Limitations and Best Practices
 
-- **Hub'Eau** :
-  - Données France uniquement
-  - Maximum recommandé : 500 stations par batch
-  - Rate limit configuré : 0.1s entre requêtes
-  - Retry automatique en cas d'erreur
+- **Hub'Eau**:
+  - France only data
+  - Maximum recommended: 500 stations per batch
+  - Configured rate limit: 0.1s between requests
+  - Automatic retry on error
 
-- **ERA5 (Copernicus)** :
-  - Compte gratuit requis avec token API
-  - Licence ERA5-Land à accepter (gratuit, un clic)
-  - Pas de rate limit restrictif
-  - Téléchargements optimisés par chunks de 2 ans
-  - Extraction uniquement des points de grille nécessaires
+- **ERA5 (Copernicus)**:
+  - Free account required with API token
+  - ERA5-Land license to accept (free, one click)
+  - No restrictive rate limit
+  - Downloads optimized by 2-year chunks
+  - Only necessary grid points extracted
 
-- **Période temporelle** :
-  - Données disponibles depuis 1940
-  - Recommandé : jusqu'à 10 ans par requête
-  - Au-delà, découpage automatique en chunks
+- **Time period**:
+  - Data available since 1940
+  - Recommended: up to 10 years per request
+  - Beyond that, automatic chunking
 
-- **Agrégation journalière** :
-  - Activée par défaut pour éviter les doublons
-  - Moyenne pour valeurs numériques, première valeur pour le texte
+- **Daily aggregation**:
+  - Enabled by default to avoid duplicates
+  - Average for numeric values, first value for text
 
-## 📁 Structure du projet
+## 📁 Project Structure
 
 ```
 piezo-dataset-builder/
 ├── src/piezo_dataset_builder/
-│   ├── app.py                  # Application Streamlit
-│   ├── api/                    # Clients API
-│   │   ├── hubeau.py          # Client Hub'Eau Piézométrie
-│   │   └── era5.py            # Client ERA5 (Copernicus)
-│   ├── core/                   # Logique métier
-│   │   ├── validator.py       # Validation codes BSS
-│   │   └── dataset_builder.py # Construction dataset
-│   └── utils/                  # Utilitaires
-│       └── export.py          # Export CSV/Excel/JSON/ZIP
-├── examples/                    # Exemples de fichiers CSV
+│   ├── app.py                  # Streamlit application
+│   ├── api/                    # API clients
+│   │   ├── hubeau.py          # Hub'Eau Piezometry client
+│   │   └── era5.py            # ERA5 (Copernicus) client
+│   ├── core/                   # Business logic
+│   │   ├── validator.py       # BSS code validation
+│   │   └── dataset_builder.py # Dataset construction
+│   └── utils/                  # Utilities
+│       └── export.py          # CSV/Excel/JSON/ZIP export
+├── examples/                    # Example CSV files
 │   └── codes_stations_piezo.csv
-├── Dockerfile                   # Configuration Docker
-├── docker-compose.yml          # Orchestration Docker
-├── .gitlab-ci.yml              # Pipeline CI/CD
-├── DOCKER.md                   # Documentation Docker
-├── pyproject.toml              # Configuration Python
+├── Dockerfile                   # Docker configuration
+├── docker-compose.yml          # Docker orchestration
+├── .gitlab-ci.yml              # CI/CD pipeline
+├── DOCKER.md                   # Docker documentation
+├── pyproject.toml              # Python configuration
 └── README.md                   # Documentation
 ```
 
-## 🔍 Données disponibles
+## 🔍 Available Data
 
-### Hub'Eau Piézométrie
+### Hub'Eau Piezometry
 
-**Champs stations disponibles :**
-- `code_bss` : Code unique de la station (BSS)
-- `libelle_station` : Nom/libellé de la station
-- `nom_commune` : Commune où se situe la station
-- `nom_departement` : Département
-- `latitude` / `longitude` : Coordonnées GPS (WGS84) - extraites automatiquement depuis geometry/x/y
+**Available station fields:**
+- `code_bss`: Unique station code (BSS)
+- `libelle_station`: Station name/label
+- `nom_commune`: Municipality where the station is located
+- `nom_departement`: Department
+- `latitude` / `longitude`: GPS coordinates (WGS84) - automatically extracted from geometry/x/y
 
-**Champs chroniques disponibles :**
-- `date` : Date de la mesure
-- `niveau_nappe_ngf` : Altitude de la nappe en mètres NGF (extrait depuis `niveau_nappe_eau` de l'API)
-- `profondeur_nappe` : Profondeur de la nappe par rapport au sol (m)
+**Available time series fields:**
+- `date`: Measurement date
+- `niveau_nappe_ngf`: Water table altitude in meters NGF (extracted from `niveau_nappe_eau` API field)
+- `profondeur_nappe`: Water table depth relative to ground (m)
 
 ### ERA5-Land (Copernicus)
 
-**Variables météorologiques disponibles :**
-- `precipitation` : Précipitations journalières (mm) - converties depuis m
-- `temperature` : Température air moyenne à 2m (°C) - convertie depuis Kelvin
-- `evapotranspiration` : Évapotranspiration potentielle (mm) - convertie depuis m
-- `humidity` : Humidité relative (%) - calculée depuis température + point de rosée
-- `wind` : Vitesse du vent à 10m (m/s)
-- `radiation` : Rayonnement solaire descendant (MJ/m²) - converti depuis J/m²
+**Available meteorological variables:**
+- `precipitation`: Daily precipitation (mm) - converted from m
+- `temperature`: Average air temperature at 2m (°C) - converted from Kelvin
+- `evapotranspiration`: Potential evapotranspiration (mm) - converted from m
+- `humidity`: Relative humidity (%) - calculated from temperature + dew point
+- `wind`: Wind speed at 10m (m/s)
+- `radiation`: Downward solar radiation (MJ/m²) - converted from J/m²
 
-**Note :**
-- Les données météo sont automatiquement associées à chaque station grâce aux coordonnées GPS extraites de Hub'Eau
-- ERA5 fournit des données depuis 1940 avec une résolution spatiale de ~9 km
-- Les valeurs sont extraites du point de grille le plus proche de chaque station
-
+**Note:**
+- Weather data is automatically associated with each station using GPS coordinates extracted from Hub'Eau
+- ERA5 provides data since 1940 with a spatial resolution of ~9 km
+- Values are extracted from the nearest grid point to each station
